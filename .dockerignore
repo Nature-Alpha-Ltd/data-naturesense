@@ -1,0 +1,26 @@
+# Ignore Python cache and local config
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+.pytest_cache
+
+# Git and test files
+.git/
+tests/
+*.log
+
+# Local environment files
+.env
+
+# CI/CD and docs
+.github/
+.pre-commit-config.yaml
+setup.sh
+requirements-dev.txt
+*.md
+*.json
+.vscode
+.venv

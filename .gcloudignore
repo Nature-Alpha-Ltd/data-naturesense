@@ -1,0 +1,14 @@
+# .gcloudignore ignore tests & tooling
+
+tests/
+.github/
+*.md
+requirements-dev.txt
+.env*
+.venv/
+.vscode/
+.pre-commit-config.yaml
+setup.sh
+.gitignore
+.pytest_cache/
+*.json

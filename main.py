@@ -104,8 +104,11 @@ def main(request):
         # Load data
         ald, assets_guestimates, naturesense_country = load_data()
 
-        # Aggregate ALD to company
+        # Generate companies evidences, i.e., aggregate ALD to company
         ald["material_asset"] = ~ald["asset_type_id"].isin([11, 12]).astype(bool)
+        ald["in_water_scarcity"] = (
+            (ald["water_availability"] > 0.6) & (ald["material_asset"] == True)
+        ).astype(bool)
 
         ald_counts = (
             ald.groupby("na_entity_id")
@@ -118,16 +121,58 @@ def main(request):
             .reset_index()
         )
 
-        # Print summary
-        print("\nSummary")
-        print(f"Shape of ALD data: {ald.shape}")
-        print(f"Shape of Assets guestimates data: {assets_guestimates.shape}")
-        print(f"Shape of NatureSense Country level data: {naturesense_country.shape}")
+        ald_counts["priority_assets_percentage"] = round(
+            (ald_counts["priority_assets_count"] / ald_counts["assets_count"]) * 100, 3
+        )
+        ald_counts["in_water_scarcity_percentage"] = round(
+            (ald_counts["in_water_scarcity_count"] / ald_counts["assets_count"]) * 100,
+            3,
+        )
 
-        print("\nSummary of processed data:")
-        print(f"Total number of companies: {len(ald_counts)}")
-        print("\nFirst 5 companies:")
-        print(ald_counts.head().to_string())
+        ald_subset = ald[ald["material_asset"] == True]
+
+        columns_to_average = [
+            "sensitive_locations",
+            "biodiversity_importance",
+            "high_ecosystem_integrity",
+            "decline_in_ecosystem_integrity",
+            "physical_water_risk",
+            "ecosystem_services_provision_importance",
+            "proximity_to_protected_areas",
+            "proximity_to_kbas",
+            "species_rarity_weighted_richness",
+            "species_threat_abatement",
+            "species_threat_abatement_marine",
+            "proximity_to_mangroves",
+            "ecosystem_intactness_index",
+            "biodiversity_intactness_index",
+            "ocean_health_index",
+            "trend_in_ecosystem_intactness_index",
+            "deforestation_hotspots",
+            "water_availability",
+            "water_pollution",
+            "drought",
+            "riverine_flood",
+            "coastal_flood",
+            "cumulative_impact_on_oceans",
+            "critical_areas_for_biodiversity_and_ncp",
+            "areas_of_importance_for_biodiversity_and_climate",
+        ]
+
+        ald_averages = (
+            ald_subset.groupby("na_entity_id")
+            .agg(
+                **{
+                    f"{col}": (col, lambda x: round(x.mean(skipna=True), 4))
+                    for col in columns_to_average
+                }
+            )
+            .reset_index()
+        )
+
+        companies_evidences = ald_counts.merge(
+            ald_averages, on="na_entity_id", how="left"
+        )
 
         return "Processing completed successfully"
 

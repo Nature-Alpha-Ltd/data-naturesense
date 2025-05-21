@@ -27,7 +27,7 @@ PROJECT_ID = cfg["PROJECT_ID"]
 BQ_DATASET = cfg["BQ_DATASET"]
 ALD = cfg["ALD"]
 ASSET_COUNTS_GUESTIMATES = cfg["ASSET_COUNTS_GUESTIMATES"]
-NATURESENSE_COUNTRY_AVG = cfg["NATURESENSE_COUNTRY_AVG"]
+NATURESENSE_COUNTRY = cfg["NATURESENSE_COUNTRY"]
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +35,7 @@ logging.basicConfig(level=logging.INFO)
 
 def load_data() -> tuple:
     """Load all required data from BigQuery using consistently formed SQL queries."""
+    # ALD
     query_ald = f"""
     SELECT 
         na_entity_id, 
@@ -73,15 +74,25 @@ def load_data() -> tuple:
     logging.info("Loading data from %s", ALD)
     ald = run_query(query_ald)
 
+    # Asset counts guestimates
+    query_assets_guestimates = f"""
+    SELECT
+        *
+    FROM {ASSET_COUNTS_GUESTIMATES};
+    """
+    logging.info("Loading data from %s", ASSET_COUNTS_GUESTIMATES)
+    assets_guestimates = run_query(query_assets_guestimates)
+
+    # NatureSense country level
     query_ns_country = f"""
     SELECT
         *
-    FROM {NATURESENSE_COUNTRY_AVG};
+    FROM {NATURESENSE_COUNTRY};
     """
-    logging.info("Loading data from %s", NATURESENSE_COUNTRY_AVG)
+    logging.info("Loading data from %s", NATURESENSE_COUNTRY)
     naturesense_country = run_query(query_ns_country)
 
-    return ald, naturesense_country
+    return ald, assets_guestimates, naturesense_country
 
 
 def main(request):
@@ -91,7 +102,7 @@ def main(request):
     """
     try:
         # Load data
-        ald, naturesense_country = load_data()
+        ald, assets_guestimates, naturesense_country = load_data()
 
         # Aggregate ALD to company
         ald["material_asset"] = ~ald["asset_type_id"].isin([11, 12]).astype(bool)
@@ -107,16 +118,14 @@ def main(request):
             .reset_index()
         )
 
-        # Print summary statistics
+        # Print summary
+        print("\nSummary")
+        print(f"Shape of ALD data: {ald.shape}")
+        print(f"Shape of Assets guestimates data: {assets_guestimates.shape}")
+        print(f"Shape of NatureSense Country level data: {naturesense_country.shape}")
+
         print("\nSummary of processed data:")
         print(f"Total number of companies: {len(ald_counts)}")
-        print(f"Total number of assets: {ald_counts['assets_count'].sum()}")
-        print(f"Total priority assets: {ald_counts['priority_assets_count'].sum()}")
-        print(f"Total material assets: {ald_counts['material_assets_count'].sum()}")
-        print(
-            f"Total assets in water scarcity: {ald_counts['in_water_scarcity_count'].sum()}"
-        )
-
         print("\nFirst 5 companies:")
         print(ald_counts.head().to_string())
 

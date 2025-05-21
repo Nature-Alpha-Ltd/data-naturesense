@@ -24,7 +24,7 @@ fi
 
 # 5. Final sanity checks
 echo "Running pytest..."
-pytest --maxfail=1 --disable-warnings -q
+.venv/bin/pytest --maxfail=1 --disable-warnings -q
 
 echo "Running pre-commit hooks on all files..."
 pre-commit run --all-files

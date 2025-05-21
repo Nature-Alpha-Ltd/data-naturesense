@@ -12,8 +12,9 @@ from utils.gcp_tools import (
     save_results,
     write_df_to_bq,
 )
-from utils.nrevx_engine import rbics_materiality_score_calculation
-from utils.post_process import postprocess_dataframe
+
+# from utils.nrevx_engine import rbics_materiality_score_calculation
+# from utils.post_process import postprocess_dataframe
 
 # 1. Read your config.ini
 config = ConfigParser()
@@ -27,36 +28,12 @@ cfg = config[ENVIRONMENT]
 
 PROJECT_ID = cfg["PROJECT_ID"]
 BQ_DATASET = cfg["BQ_DATASET"]
-BQ_DATASET_OTHER = cfg["BQ_DATASET_OTHER"]
-ENTITIES_TABLE_ID = cfg["ENTITIES_TABLE_ID"]
-ISIN_MAPPING = cfg["ISIN_MAPPING"]
-MM_TABLE = cfg["MM_TABLE"]
-GICS_MAPPING = cfg["GICS_MAPPING"]
-RBICS_L6 = cfg["RBICS_L6"]
-MISSING_L6_MAP = cfg["MISSING_L6_MAP"]
-FILE_NAME = cfg["FILE_NAME"]
-TABLE_NAME_OTHER = cfg["TABLE_NAME_OTHER"]
-DATE_TABLE = cfg["DATE_TABLE"]
-NREVX_DD = cfg["NREVX_DD"]
+ALD = cfg["ALD"]
+COUNTRY_PRIORS = cfg["COUNTRY_PRIORS"]
+ASSET_COUNTS_ESTIMATES = cfg["ASSET_COUNTS_ESTIMATES"]
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-
-
-def validate_mappings() -> None:
-    """Ensure that no missing L6 mappings exist before processing."""
-    query = f"""
-    SELECT *
-    FROM {MISSING_L6_MAP};
-    """
-    logging.info("Checking for missing L6 mappings")
-    df = run_query(query)
-    if not df.empty:
-        error_msg = "Missing L6 mappings. Check 'check_for_missing_l6_mapping' table."
-        logging.error(error_msg)
-        raise ValueError(error_msg)
-    else:
-        logging.info("No missing mapping found!")
 
 
 def load_data() -> tuple:

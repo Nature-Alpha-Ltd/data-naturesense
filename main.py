@@ -106,9 +106,9 @@ def main(request):
 
         # Generate companies evidences, i.e., aggregate ALD to company
         ald["material_asset"] = ~ald["asset_type_id"].isin([11, 12]).astype(bool)
-        ald["in_water_scarcity"] = (
-            (ald["water_availability"] > 0.6) & (ald["material_asset"] == True)
-        ).astype(bool)
+        # ald["in_water_scarcity"] = (
+        #     (ald["water_availability"] > 0.6) & (ald["material_asset"] == True)
+        # ).astype(bool)
 
         ald_counts = (
             ald.groupby("na_entity_id")
@@ -163,7 +163,7 @@ def main(request):
             ald_subset.groupby("na_entity_id")
             .agg(
                 **{
-                    f"{col}": (col, lambda x: round(x.mean(skipna=True), 4))
+                    f"{col}": (col, lambda x: round(x.mean(skipna=True), 3))
                     for col in columns_to_average
                 }
             )

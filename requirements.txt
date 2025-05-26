@@ -7,3 +7,4 @@ google-cloud-bigquery-storage==2.31.0
 #pyarrow==20.0.0
 #db-dtypes==1.4.2
 pandas-gbq==0.28.0
+tqdm==4.67.1

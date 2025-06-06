@@ -69,7 +69,6 @@ naturesense_metrics = [
 ]
 
 
-# Pull data from BQ
 def load_data() -> tuple:
     """Load all required data from BigQuery using consistently formed SQL queries."""
     # ALD
@@ -130,6 +129,431 @@ def load_data() -> tuple:
     naturesense_country = run_query(query_ns_country)
 
     return ald, assets_guestimates, naturesense_country
+
+
+def get_company_countries(company_row: pd.Series) -> List[str]:
+    """
+    Extract valid ISO country codes from company row where asset count > 0.
+
+    Parameters
+    ----------
+    company_row : pd.Series
+        Row containing company's country distribution
+
+    Returns
+    -------
+    List[str]
+        List of valid ISO country codes with positive asset counts
+    """
+    iso_pattern = re.compile(r"^[A-Z0-9]{3}$")
+    return [c for c in company_row.index if iso_pattern.match(c) and company_row[c] > 0]
+
+
+def calculate_country_prior(
+    company_row: pd.Series,
+    country_priors: pd.DataFrame,
+    evidence_columns: Union[str, List[str]],
+    country_codes: List[str],
+    entity_id: str,
+) -> List[float]:
+    """
+    Calculate the country-weighted prior for a company for one or multiple geospatial columns.
+    Uses vectorized operations to compute weighted averages for all evidence columns at once.
+    Returns None for each column if there are no valid weights.
+    """
+    # Ensure evidence_columns is a list
+    if isinstance(evidence_columns, str):
+        evidence_columns = [evidence_columns]
+
+    # Obtain guestimated countries with company presence
+    company_countries = get_company_countries(company_row)
+
+    # Check which countries have country avg prior available
+    available_countries = [c for c in company_countries if c in country_codes]
+    missing_countries = set(company_countries) - set(country_codes)
+
+    if missing_countries:
+        logger.info(
+            f"NA_entity_id {entity_id} has assets in countries missing from priors: {missing_countries}. "
+            "These will be excluded from the weighted average calculation."
+        )
+
+    if company_row.empty:
+        logger.warning(f"No country distribution found for NA_entity_id {entity_id}")
+        return [None] * len(evidence_columns)
+
+    # Get the priors matrix for available countries and evidence columns
+    priors_matrix = country_priors[
+        country_priors["country_code"].isin(available_countries)
+    ]
+    priors_matrix = priors_matrix.set_index("country_code")[evidence_columns]
+
+    # Create weights array for available countries
+    weights = pd.Series(
+        {country: company_row[country] for country in available_countries}
+    )
+
+    # If no weights or all weights are zero, return None for each column
+    if not available_countries or weights.sum() == 0:
+        return [None] * len(evidence_columns)
+
+    # Normalize weights and ensure index alignment
+    weights = weights / weights.sum()
+    weights = weights.reindex(priors_matrix.index)
+
+    # Compute weighted average for all columns at once using matrix multiplication
+    weighted_priors = weights.dot(priors_matrix)
+
+    # Convert to list and handle any NaN values
+    return [float(val) if pd.notnull(val) else None for val in weighted_priors]
+
+
+def calculate_effective_k(
+    k: float, estimated_material_assets_count: int, material_assets_count: int
+) -> float:
+    """
+    Calculate the effective k value based on various scenarios.
+
+    Parameters
+    ----------
+    k : float
+        Original k value. If < 1, interpreted as proportion of estimated_material_assets_count
+    estimated_material_assets_count : int
+        Estimated total number of company assets in the world
+    material_assets_count : int
+        Actual number of discovered company assets
+
+    Returns
+    -------
+    float
+        Adjusted k value
+    """
+    # If k is proportional, convert to absolute number
+    # Ensure effective_k is at least 1 if estimated_material_assets_count is greater than 0
+    if k < 1:
+        effective_k = (
+            max(1, np.ceil(k * estimated_material_assets_count))
+            if estimated_material_assets_count > 0
+            else 0
+        )
+    else:
+        effective_k = k
+
+    # If we found more assets than estimated locations, update our estimate
+    if (
+        estimated_material_assets_count != 0
+        and material_assets_count > estimated_material_assets_count
+    ):
+        estimated_material_assets_count = material_assets_count
+
+    # If estimated total locations is less than k, adjust k down
+    if estimated_material_assets_count < effective_k:
+        effective_k = estimated_material_assets_count
+
+    return float(effective_k)
+
+
+def no_guestimates_adjust_priors_and_k(
+    weighted_priors: Union[List[float], None],
+    effective_k: float,
+    k: float,
+    default_priors: Union[List[float], None],
+) -> Tuple[List[float], float]:
+    """
+    Adjust priors and effective_k for companies with no prior and few assets.
+
+    Parameters
+    ----------
+    weighted_priors : Union[List[float], None]
+        List of weighted priors, may contain None values, or be None itself
+    effective_k : float
+        Current effective k value
+    k : float
+        Original k value
+    default_priors : Union[List[float], None]
+        List of default prior values from global medians
+
+    Returns
+    -------
+    Tuple[List[float], float]
+        Adjusted weighted priors and effective k value
+    """
+    if weighted_priors is None or any(p is None for p in weighted_priors):
+        if effective_k < k:
+            if weighted_priors is None:
+                weighted_priors = default_priors.copy()
+            else:
+                weighted_priors = [
+                    default_priors[i] if p is None else p
+                    for i, p in enumerate(weighted_priors)
+                ]
+            effective_k = k
+    return weighted_priors, effective_k
+
+
+def compute_posterior(
+    evidences: pd.DataFrame,
+    priors: pd.DataFrame,
+    sample_size: int,
+    k: float,
+) -> pd.DataFrame:
+    """
+    Compute posterior scores by combining entity-specific evidences with priors
+    based on sample size.
+
+    Parameters
+    ----------
+    evidences : pd.DataFrame
+        DataFrame containing evidence values for each metric
+    priors : pd.DataFrame
+        DataFrame containing prior values for each metric
+    sample_size : int
+        Number of assets/samples for the company
+    k : float
+        Threshold value for sample size adjustment
+
+    Returns
+    -------
+    pd.Series
+        Series containing posterior values for each metric, indexed by metric names
+    """
+    try:
+        if not isinstance(k, (int, float)) or k < 0:
+            logger.error("k must be a positive number")
+            return None
+
+        # Handle edge cases
+        if k == 0:
+            if sample_size == 0:
+                return pd.DataFrame(0, index=evidences.index, columns=evidences.columns)
+            return evidences
+        elif sample_size == 0:
+            return priors.round(3)
+
+        # Compute weights safely, avoiding NaN by ensuring effective_k is never zero
+        adapted_k = min(sample_size / k, 1)
+        w_i = 1 if sample_size == 0 else adapted_k
+
+        # Compute posterior using vectorized operations
+        theta_i = (w_i * evidences + (1 - w_i) * priors).round(3)
+
+        # Convert to Series while preserving column names
+        if isinstance(theta_i, pd.DataFrame):
+            return theta_i.iloc[0]
+        else:
+            return pd.Series(theta_i, index=evidences.columns)
+
+    except Exception as e:
+        logger.error(f"Error during posterior computation: {str(e)}")
+        raise
+
+
+def process_company_evidence(
+    company_data: pd.DataFrame,
+    country_dist: pd.DataFrame,
+    country_priors: pd.DataFrame,
+    evidence_columns: List[str],
+    k: Union[int, float] = 10,
+) -> pd.DataFrame:
+    """
+    Process company evidence using country distribution and priors.
+
+    Parameters
+    ----------
+    company_data : pd.DataFrame
+        Company-level data containing:
+        - na_entity_id: Company identifier
+        - material_assets_count: Number of total assets
+        - evidence_columns: Columns containing evidence to process
+    country_dist : pd.DataFrame
+        Country distribution data containing:
+        - na_entity_id: Company identifier
+        - total_company_locations: Optional total locations count
+        - One column per country code with number of assets
+    country_priors : pd.DataFrame
+        Country-level priors containing:
+        - country_code: ISO alpha-3 country code
+        - columns matching evidence_columns with prior values
+    evidence_columns : List[str]
+        List of column names in company_data to process
+    k : int or float, optional
+        If k > 1: interpreted as absolute number of asset locations
+        If k ≤ 1: interpreted as proportion of company's total locations
+        Default is 10.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with original company data plus new posterior columns
+    """
+    logger.info("Starting company evidence processing")
+
+    try:
+        # Validate input company_data
+        company_data_required_cols = [
+            "na_entity_id",
+            "material_assets_count",
+            *evidence_columns,
+        ]
+
+        if not all(col in company_data.columns for col in company_data_required_cols):
+            missing_cols = set(company_data_required_cols) - set(company_data.columns)
+            raise ValueError(
+                f"Missing required columns in company_data: {missing_cols}"
+            )
+
+        # Validate input country_dist
+        if "na_entity_id" not in country_dist.columns:
+            raise ValueError("country_dist must contain 'na_entity_id' column")
+
+        ## Check if country_dist has any country codes not in country_priors
+        country_codes = country_priors["country_code"].tolist()
+        country_dist_basic_cols = [
+            "na_entity_id",
+            "entity_isin",
+            "entity_name",
+            "factset_entity_name",
+            "factset_coverage_name",
+            "total_company_locations",
+            "number_material_assets",
+            "primary_sector",
+            "partition_date",
+        ]
+        invalid_country_codes = [
+            col
+            for col in country_dist.columns
+            if col not in country_codes and col not in country_dist_basic_cols
+        ]
+
+        if invalid_country_codes:
+            raise ValueError(
+                f"country_dist contains country codes not found in country_priors: {invalid_country_codes}"
+            )
+
+        ## Sum of the assets listed under each country code
+        country_dist_copy = country_dist.copy()
+        country_cols = [col for col in country_dist.columns if col in country_codes]
+        country_assets_sum = country_dist_copy[country_cols].sum(axis=1)
+        country_dist_copy["total_company_locations"] = country_assets_sum
+
+        # Validate input country_priors
+        available_evidence = [
+            col for col in evidence_columns if col in country_priors.columns
+        ]
+        missing_evidence = set(evidence_columns) - set(available_evidence)
+
+        if missing_evidence:
+            raise ValueError(
+                f"Following evidence columns not found in country_priors: {missing_evidence}"
+            )
+
+        # Create output DataFrame
+        result_df = company_data.copy()
+
+        # Add posterior columns to result_df, initialized as copies of original columns
+        for col in evidence_columns:
+            result_df[f"{col}_posterior"] = result_df[col]
+
+        # Keep track of missing entity ids
+        missing_entity_ids = []
+
+        # Process each company
+        for entity_id in tqdm(
+            result_df["na_entity_id"].unique(), desc="Implementing NatureSense Priors"
+        ):
+            # Initialize
+            material_assets_count = int(
+                company_data.loc[
+                    company_data["na_entity_id"] == entity_id, "material_assets_count"
+                ].iloc[0]
+            )
+
+            estimated_material_assets_count = 0
+
+            # If material_assets_count >= k don't adjust company evidence
+            if material_assets_count >= k:
+                continue
+
+            # Get company evidence values for all columns
+            company_evidence = result_df.loc[
+                result_df["na_entity_id"] == entity_id, evidence_columns
+            ].iloc[0]
+
+            # Get company country distribution and estimated_material_assets_count
+            if entity_id not in country_dist_copy["na_entity_id"].values:
+                missing_entity_ids.append(entity_id)
+                weighted_priors = [None] * len(
+                    evidence_columns
+                )  # Initialize with correct length
+            else:
+                company_row = country_dist_copy[
+                    country_dist_copy["na_entity_id"] == entity_id
+                ].iloc[0]
+
+                estimated_material_assets_count = company_row["total_company_locations"]
+
+                # If both material_assets_count and estimated_material_assets_count are 0, set all evidence columns to None
+                if material_assets_count == 0 and estimated_material_assets_count == 0:
+                    for col in evidence_columns:
+                        result_df.loc[
+                            result_df["na_entity_id"] == entity_id, f"{col}_posterior"
+                        ] = np.nan
+                    continue
+
+                # Get weighted priors
+                weighted_priors = calculate_country_prior(
+                    company_row=company_row,
+                    country_priors=country_priors,
+                    evidence_columns=evidence_columns,
+                    country_codes=country_codes,
+                    entity_id=entity_id,
+                )
+
+            # Calculate effective k
+            effective_k = calculate_effective_k(
+                k=k,
+                estimated_material_assets_count=estimated_material_assets_count,
+                material_assets_count=material_assets_count,
+            )
+
+            # Adjust priors and k if necessary
+            weighted_priors, effective_k = no_guestimates_adjust_priors_and_k(
+                weighted_priors, effective_k, k, ald_global_median
+            )
+
+            weighted_priors_df = pd.DataFrame(
+                {
+                    col: [weighted_priors[idx]]
+                    for idx, col in enumerate(evidence_columns)
+                },
+                index=[0],
+            )
+
+            # Compute posteriors
+            posteriors = compute_posterior(
+                evidences=company_evidence[evidence_columns].astype(float),
+                priors=weighted_priors_df,
+                sample_size=material_assets_count,
+                k=effective_k,
+            )
+
+            # Populate resul_df with posterior values
+            posterior_cols = [f"{col}_posterior" for col in evidence_columns]
+            result_df.loc[
+                result_df["na_entity_id"] == entity_id, posterior_cols
+            ] = posteriors.to_numpy(dtype="float64")
+
+        if missing_entity_ids:
+            logger.warning(
+                f"{len(missing_entity_ids)} companies were not found in company country distribution data"
+            )
+
+        logger.info("Completed company evidence processing")
+        return result_df
+
+    except Exception as e:
+        logger.error(f"Error in process_company_evidence: {str(e)}")
+        raise
 
 
 def main(request):
@@ -193,7 +617,16 @@ def main(request):
 
         ald_global_median = [float(val) for val in ald_global_median.values()]
 
-        return "Processing completed successfully"
+        # Main process
+        result = process_company_evidence(
+            company_data=companies_evidences,
+            country_dist=assets_guestimates.drop(columns="HKG"),
+            country_priors=naturesense_country,
+            evidence_columns=naturesense_metrics,
+            k=10,
+        )
+
+        return result.head(5)  # "Processing completed successfully"
 
     except Exception as e:
         logging.exception("Error during metrics calculation")

@@ -116,7 +116,7 @@ def get_git_branch():
 
 
 def save_results(
-    nature_revx_df: pd.DataFrame, table_name: str, dataset: str, env: str, project: str
+    result_df: pd.DataFrame, table_name: str, dataset: str, env: str, project: str
 ) -> None:
     """Write the results DataFrame to BigQuery."""
     if env != "dev":
@@ -124,5 +124,5 @@ def save_results(
     else:
         datestr = get_git_branch()
     output_table_id = f"{project}.{dataset}.{table_name}_{datestr}"
-    write_df_to_bq(nature_revx_df, output_table_id)
+    write_df_to_bq(result_df, output_table_id)
     logging.info(f"{table_name} metrics saved to %s", output_table_id)

@@ -38,6 +38,7 @@ BQ_DATASET = cfg["BQ_DATASET"]
 ALD = cfg["ALD"]
 ASSET_COUNTS_GUESTIMATES = cfg["ASSET_COUNTS_GUESTIMATES"]
 NATURESENSE_COUNTRY = cfg["NATURESENSE_COUNTRY"]
+FILE_NAME = cfg["FILE_NAME"]
 
 # Define NatureSense metrics
 naturesense_metrics = [
@@ -576,7 +577,7 @@ def main(request):
     Processes input (if provided), calculates metrics, and returns a status message.
     """
     try:
-        # Load data
+        # Load data from BigQuery
         ald, assets_guestimates, naturesense_country = load_data()
 
         # Generate companies evidences, i.e., aggregate ALD to company
@@ -641,7 +642,26 @@ def main(request):
             k=10,
         )
 
-        return print(result.head(5))  # "Processing completed successfully"
+        # Organise columns
+        result = result[
+            [
+                "na_entity_id",
+                "assets_count",
+                "material_assets_count",
+                "estimated_material_assets_count",
+                "priority_assets_count",
+                "priority_assets_percentage",
+                "in_water_scarcity_count",
+                "in_water_scarcity_percentage",
+                *naturesense_metrics,
+                *[f"{col}_posterior" for col in naturesense_metrics],
+            ]
+        ]
+
+        # Write results to BigQuery
+        save_results(result, FILE_NAME, BQ_DATASET, ENVIRONMENT, PROJECT_ID)
+
+        return f"{FILE_NAME} metrics calculated and saved successfully.", 200
 
     except Exception as e:
         logging.exception("Error during metrics calculation")

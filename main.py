@@ -1,9 +1,13 @@
 import logging
 import os
+import re
 from configparser import ConfigParser
 from datetime import datetime
+from typing import List, Tuple, Union
 
+import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 from utils.gcp_tools import (
     get_git_branch,
@@ -13,14 +17,20 @@ from utils.gcp_tools import (
     write_df_to_bq,
 )
 
+# Configure logging
+logging.basicConfig(
+    level=logging.ERROR, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
 # 1. Read your config.ini
 config = ConfigParser()
 config.read("config.ini")
 
-# 2. Grab the section name from the ENVIRONMENT env‑var
+# Grab the section name from the ENVIRONMENT env‑var
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "dev")
 
-# 3. Fetch that section (this yields a SectionProxy)
+# Fetch that section (this yields a SectionProxy)
 cfg = config[ENVIRONMENT]
 
 PROJECT_ID = cfg["PROJECT_ID"]
@@ -29,10 +39,37 @@ ALD = cfg["ALD"]
 ASSET_COUNTS_GUESTIMATES = cfg["ASSET_COUNTS_GUESTIMATES"]
 NATURESENSE_COUNTRY = cfg["NATURESENSE_COUNTRY"]
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Define NatureSense metrics
+naturesense_metrics = [
+    "sensitive_locations",
+    "biodiversity_importance",
+    "high_ecosystem_integrity",
+    "decline_in_ecosystem_integrity",
+    "physical_water_risk",
+    "ecosystem_services_provision_importance",
+    "proximity_to_protected_areas",
+    "proximity_to_kbas",
+    "species_rarity_weighted_richness",
+    "species_threat_abatement",
+    "species_threat_abatement_marine",
+    "proximity_to_mangroves",
+    "ecosystem_intactness_index",
+    "biodiversity_intactness_index",
+    "ocean_health_index",
+    "trend_in_ecosystem_intactness_index",
+    "deforestation_hotspots",
+    "water_availability",
+    "water_pollution",
+    "drought",
+    "riverine_flood",
+    "coastal_flood",
+    "cumulative_impact_on_oceans",
+    "critical_areas_for_biodiversity_and_ncp",
+    "areas_of_importance_for_biodiversity_and_climate",
+]
 
 
+# Pull data from BQ
 def load_data() -> tuple:
     """Load all required data from BigQuery using consistently formed SQL queries."""
     # ALD
@@ -106,9 +143,10 @@ def main(request):
 
         # Generate companies evidences, i.e., aggregate ALD to company
         ald["material_asset"] = ~ald["asset_type_id"].isin([11, 12]).astype(bool)
-        # ald["in_water_scarcity"] = (
-        #     (ald["water_availability"] > 0.6) & (ald["material_asset"] == True)
-        # ).astype(bool)
+
+        ald["in_water_scarcity"] = (
+            (ald["water_availability"] > 0.6) & (ald["material_asset"] == True)
+        ).astype(bool)
 
         ald_counts = (
             ald.groupby("na_entity_id")
@@ -124,47 +162,20 @@ def main(request):
         ald_counts["priority_assets_percentage"] = round(
             (ald_counts["priority_assets_count"] / ald_counts["assets_count"]) * 100, 3
         )
+
         ald_counts["in_water_scarcity_percentage"] = round(
             (ald_counts["in_water_scarcity_count"] / ald_counts["assets_count"]) * 100,
             3,
         )
 
-        ald_subset = ald[ald["material_asset"] == True]
-
-        columns_to_average = [
-            "sensitive_locations",
-            "biodiversity_importance",
-            "high_ecosystem_integrity",
-            "decline_in_ecosystem_integrity",
-            "physical_water_risk",
-            "ecosystem_services_provision_importance",
-            "proximity_to_protected_areas",
-            "proximity_to_kbas",
-            "species_rarity_weighted_richness",
-            "species_threat_abatement",
-            "species_threat_abatement_marine",
-            "proximity_to_mangroves",
-            "ecosystem_intactness_index",
-            "biodiversity_intactness_index",
-            "ocean_health_index",
-            "trend_in_ecosystem_intactness_index",
-            "deforestation_hotspots",
-            "water_availability",
-            "water_pollution",
-            "drought",
-            "riverine_flood",
-            "coastal_flood",
-            "cumulative_impact_on_oceans",
-            "critical_areas_for_biodiversity_and_ncp",
-            "areas_of_importance_for_biodiversity_and_climate",
-        ]
+        ald_material = ald[ald["material_asset"] == True]
 
         ald_averages = (
-            ald_subset.groupby("na_entity_id")
+            ald_material.groupby("na_entity_id")
             .agg(
                 **{
                     f"{col}": (col, lambda x: round(x.mean(skipna=True), 3))
-                    for col in columns_to_average
+                    for col in naturesense_metrics
                 }
             )
             .reset_index()
@@ -173,6 +184,14 @@ def main(request):
         companies_evidences = ald_counts.merge(
             ald_averages, on="na_entity_id", how="left"
         )
+
+        # Calculate global median for each metric in naturesense_metrics
+        ald_global_median = {
+            metric: round(ald_material[metric].median(skipna=True), 3)
+            for metric in naturesense_metrics
+        }
+
+        ald_global_median = [float(val) for val in ald_global_median.values()]
 
         return "Processing completed successfully"
 

@@ -328,14 +328,14 @@ def compute_posterior(
                 return pd.DataFrame(0, index=evidences.index, columns=evidences.columns)
             return evidences
         elif sample_size == 0:
-            return priors.round(3)
+            return priors
 
         # Compute weights safely, avoiding NaN by ensuring effective_k is never zero
         adapted_k = min(sample_size / k, 1)
         w_i = 1 if sample_size == 0 else adapted_k
 
         # Compute posterior using vectorized operations
-        theta_i = (w_i * evidences + (1 - w_i) * priors).round(3)
+        theta_i = w_i * evidences + (1 - w_i) * priors
 
         # Convert to Series while preserving column names
         if isinstance(theta_i, pd.DataFrame):
@@ -553,6 +553,9 @@ def process_company_evidence(
             result_df.loc[
                 result_df["na_entity_id"] == entity_id, posterior_cols
             ] = posteriors.to_numpy(dtype="float64")
+
+        # Round posterior values to 3 decimals
+        result_df[posterior_cols] = result_df[posterior_cols].round(3)
 
         if missing_entity_ids:
             logger.warning(

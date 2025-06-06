@@ -457,6 +457,9 @@ def process_company_evidence(
         for col in evidence_columns:
             result_df[f"{col}_posterior"] = result_df[col]
 
+        # Add estimated_material_assets_count column initialized with 0
+        result_df["estimated_material_assets_count"] = 0
+
         # Keep track of missing entity ids
         missing_entity_ids = []
 
@@ -485,15 +488,20 @@ def process_company_evidence(
             # Get company country distribution and estimated_material_assets_count
             if entity_id not in country_dist_copy["na_entity_id"].values:
                 missing_entity_ids.append(entity_id)
-                weighted_priors = [None] * len(
-                    evidence_columns
-                )  # Initialize with correct length
+                # Initialize with correct length
+                weighted_priors = [None] * len(evidence_columns)
             else:
                 company_row = country_dist_copy[
                     country_dist_copy["na_entity_id"] == entity_id
                 ].iloc[0]
 
                 estimated_material_assets_count = company_row["total_company_locations"]
+
+                # Update estimated_material_assets_count in result_df
+                result_df.loc[
+                    result_df["na_entity_id"] == entity_id,
+                    "estimated_material_assets_count",
+                ] = estimated_material_assets_count
 
                 # If both material_assets_count and estimated_material_assets_count are 0, set all evidence columns to None
                 if material_assets_count == 0 and estimated_material_assets_count == 0:
@@ -630,7 +638,7 @@ def main(request):
             k=10,
         )
 
-        return result.head(5)  # "Processing completed successfully"
+        return print(result.head(5))  # "Processing completed successfully"
 
     except Exception as e:
         logging.exception("Error during metrics calculation")

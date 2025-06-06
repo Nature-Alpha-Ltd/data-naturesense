@@ -353,6 +353,7 @@ def process_company_evidence(
     country_dist: pd.DataFrame,
     country_priors: pd.DataFrame,
     evidence_columns: List[str],
+    global_priors: Union[List[float], None],
     k: Union[int, float] = 10,
 ) -> pd.DataFrame:
     """
@@ -376,6 +377,8 @@ def process_company_evidence(
         - columns matching evidence_columns with prior values
     evidence_columns : List[str]
         List of column names in company_data to process
+    global_priors : Union[List[float], None]
+        List of default prior values from global medians
     k : int or float, optional
         If k > 1: interpreted as absolute number of asset locations
         If k ≤ 1: interpreted as proportion of company's total locations
@@ -518,7 +521,7 @@ def process_company_evidence(
 
             # Adjust priors and k if necessary
             weighted_priors, effective_k = no_guestimates_adjust_priors_and_k(
-                weighted_priors, effective_k, k, ald_global_median
+                weighted_priors, effective_k, k, global_priors
             )
 
             weighted_priors_df = pd.DataFrame(
@@ -623,6 +626,7 @@ def main(request):
             country_dist=assets_guestimates.drop(columns="HKG"),
             country_priors=naturesense_country,
             evidence_columns=naturesense_metrics,
+            global_priors=ald_global_median,
             k=10,
         )
 

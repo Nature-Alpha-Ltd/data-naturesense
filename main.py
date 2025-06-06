@@ -533,6 +533,13 @@ def process_company_evidence(
                 weighted_priors, effective_k, k, global_priors
             )
 
+            # Prepare DataFrames to compute posteriors
+            company_evidence_df = pd.DataFrame(
+                company_evidence[evidence_columns].astype(float).values.reshape(1, -1),
+                columns=evidence_columns,
+                index=[0],
+            )
+
             weighted_priors_df = pd.DataFrame(
                 {
                     col: [weighted_priors[idx]]
@@ -543,7 +550,7 @@ def process_company_evidence(
 
             # Compute posteriors
             posteriors = compute_posterior(
-                evidences=company_evidence[evidence_columns].astype(float),
+                evidences=company_evidence_df,
                 priors=weighted_priors_df,
                 sample_size=material_assets_count,
                 k=effective_k,

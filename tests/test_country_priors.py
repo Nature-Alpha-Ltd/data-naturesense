@@ -58,7 +58,20 @@ class TestPosteriorComputation(unittest.TestCase):
         ) + self.weighted_priors.iloc[0, 0] * (1 - material_assets_count / effective_k)
         self.assertAlmostEqual(result.iloc[0], expected)
 
-    def test_sample_size_greater_than_k(self):
+    def test_k_adjustment_for_low_sample_size(self):
+        """Test sample size < k, k is adjusted to sample_size"""
+        result = compute_posterior(
+            evidences=self.company_evidences,
+            priors=self.weighted_priors,
+            sample_size=4,
+            k=5,
+        )
+        expected = self.company_evidences.iloc[0, 0] * (
+            4 / 5
+        ) + self.weighted_priors.iloc[0, 0] * (1 - 4 / 5)
+        self.assertAlmostEqual(result.iloc[0], expected)
+
+    def test_sample_size_greater_than_k(self):  # Condition 1
         """Test when sample size is greater than k"""
         result = compute_posterior(
             evidences=self.company_evidences,
@@ -70,7 +83,7 @@ class TestPosteriorComputation(unittest.TestCase):
         for i in range(len(self.company_evidences.columns)):
             self.assertAlmostEqual(result.iloc[i], self.company_evidences.iloc[0, i])
 
-    def test_k_equals_sample_size(self):
+    def test_k_equals_sample_size(self):  # Condition 1
         """Test when k equals sample size"""
         result = compute_posterior(
             evidences=self.company_evidences,
@@ -82,7 +95,7 @@ class TestPosteriorComputation(unittest.TestCase):
         for i in range(len(self.company_evidences.columns)):
             self.assertAlmostEqual(result.iloc[i], self.company_evidences.iloc[0, i])
 
-    def test_zero_sample_size(self):
+    def test_zero_sample_size(self):  # Condition 3
         """Test with zero sample size"""
         result = compute_posterior(
             evidences=self.company_evidences,
@@ -94,34 +107,75 @@ class TestPosteriorComputation(unittest.TestCase):
         for i in range(len(self.company_evidences.columns)):
             self.assertAlmostEqual(result.iloc[i], self.weighted_priors.iloc[0, i])
 
-    # def test_large_sample_size(self):
-    #     """Test with sample size larger than k"""
-    #     result = compute_posterior(
-    #         evidences=self.company_evidences,
-    #         priors=self.weighted_priors,
-    #         sample_size=15,
-    #         k=10
-    #     )
-    #     # When sample_size > k, result should equal evidence
-    #     for i in range(len(self.company_evidences.columns)):
-    #         self.assertAlmostEqual(result.iloc[i], self.company_evidences.iloc[0, i])
+    def test_zero_k(self):
+        """Test with zero k"""
+        result = compute_posterior(
+            evidences=self.company_evidences,
+            priors=self.weighted_priors,
+            sample_size=5,
+            k=0,
+        )
+        # When sample_size > k, result should equal evidence
+        for i in range(len(self.company_evidences.columns)):
+            self.assertAlmostEqual(result.iloc[i], self.company_evidences.iloc[0, i])
 
-    # def test_different_evidence_prior_combinations(self):
-    #     """Test with different combinations of evidence and prior values"""
-    #     test_evidences = pd.DataFrame({"test": [0.0, 0.5, 1.0]}, index=[0, 1, 2])
-    #     test_priors = pd.DataFrame({"test": [0.0, 0.5, 1.0]}, index=[0, 1, 2])
+    def test_large_sample_size(self):
+        """Test behavior with large sample size"""
+        result = compute_posterior(
+            evidences=self.company_evidences,
+            priors=self.weighted_priors,
+            sample_size=50,
+            k=10,
+        )
+        # When sample_size > k, result should equal evidence
+        for i in range(len(self.company_evidences.columns)):
+            self.assertAlmostEqual(result.iloc[i], self.company_evidences.iloc[0, i])
 
-    #     result = compute_posterior(
-    #         evidences=test_evidences,
-    #         priors=test_priors,
-    #         sample_size=5,
-    #         k=10
-    #     )
+    def test_zero_prior(self):
+        """Test edge case where prior is zero"""
+        company_evidences = pd.DataFrame(
+            {"sensitive_locations": [0.895]},
+            index=[0],
+        )
+        weighted_priors = pd.DataFrame(
+            {"sensitive_locations": [0.0]},
+            index=[0],
+        )
+        material_assets_count = 5
+        effective_k = 10
+        result = compute_posterior(
+            evidences=company_evidences,
+            priors=weighted_priors,
+            sample_size=material_assets_count,
+            k=effective_k,
+        )
+        expected = 0.895 * (material_assets_count / effective_k) + 0.0 * (
+            1 - material_assets_count / effective_k
+        )
+        self.assertAlmostEqual(result.iloc[0], expected)
 
-    #     # Test different combinations
-    #     self.assertAlmostEqual(result.iloc[0], 0.0)  # 0.0 evidence, 0.0 prior
-    #     self.assertAlmostEqual(result.iloc[1], 0.5)  # 0.5 evidence, 0.5 prior
-    #     self.assertAlmostEqual(result.iloc[2], 1.0)  # 1.0 evidence, 1.0 prior
+    def test_zero_evidence(self):
+        """Test edge case where evidence is zero"""
+        company_evidences = pd.DataFrame(
+            {"sensitive_locations": [0.0]},
+            index=[0],
+        )
+        weighted_priors = pd.DataFrame(
+            {"sensitive_locations": [0.567]},
+            index=[0],
+        )
+        material_assets_count = 5
+        effective_k = 10
+        result = compute_posterior(
+            evidences=company_evidences,
+            priors=weighted_priors,
+            sample_size=material_assets_count,
+            k=effective_k,
+        )
+        expected = 0.0 * (material_assets_count / effective_k) + 0.567 * (
+            1 - material_assets_count / effective_k
+        )
+        self.assertAlmostEqual(result.iloc[0], expected)
 
 
 if __name__ == "__main__":

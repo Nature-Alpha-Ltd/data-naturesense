@@ -556,7 +556,7 @@ def process_company_evidence(
                 k=effective_k,
             )
 
-            # Populate resul_df with posterior values
+            # Populate result_df with posterior values
             posterior_cols = [f"{col}_posterior" for col in evidence_columns]
             result_df.loc[
                 result_df["na_entity_id"] == entity_id, posterior_cols
@@ -642,7 +642,7 @@ def main(request):
         # Main process
         result = process_company_evidence(
             company_data=companies_evidences,
-            country_dist=assets_guestimates.drop(columns="HKG"),
+            country_dist=assets_guestimates,
             country_priors=naturesense_country,
             evidence_columns=naturesense_metrics,
             global_priors=ald_global_median,

@@ -178,5 +178,170 @@ class TestPosteriorComputation(unittest.TestCase):
         self.assertAlmostEqual(result.iloc[0], expected)
 
 
+class TestCountryPriorCalculation(unittest.TestCase):
+    def setUp(self):
+        """Set up test data"""
+        self.country_priors = pd.DataFrame(
+            {"country_code": ["USA", "GBR", "JPN"], "emissions": [0.4, 0.3, 0.5]}
+        )
+        self.country_codes = ["USA", "GBR", "JPN"]
+
+    def test_zero_locations(self):
+        """Test when company has zero material asset locations"""
+        company_row = pd.Series(
+            {
+                "na_entity_id": "TEST1",
+                "USA": 0,
+                "GBR": 0,
+                "JPN": 0,
+                "total_company_locations": 0,
+            }
+        )
+        prior = calculate_country_prior(
+            company_row=company_row,
+            country_priors=self.country_priors,
+            evidence_columns=["emissions"],
+            country_codes=self.country_codes,
+            entity_id="TEST1",
+        )
+        self.assertEqual(prior, [None])  # Now expecting [None] instead of None
+
+    def test_missing_countries(self):
+        """Test when company has assets in countries missing from priors"""
+        company_row = pd.Series(
+            {
+                "na_entity_id": "TEST1",
+                "USA": 10,
+                "XXX": 5,  # Missing country
+                "total_company_locations": 15,
+            }
+        )
+        prior = calculate_country_prior(
+            company_row=company_row,
+            country_priors=self.country_priors,
+            evidence_columns=["emissions"],
+            country_codes=self.country_codes,
+            entity_id="TEST1",
+        )
+        self.assertEqual(len(prior), 1)  # Should be a list with one element
+        self.assertAlmostEqual(prior[0], 0.4)  # Only USA should be considered
+
+    def test_multiple_evidence_columns(self):
+        """Test calculation with multiple evidence columns"""
+        # Update test data to include multiple columns
+        self.country_priors = pd.DataFrame(
+            {
+                "country_code": ["USA", "GBR", "JPN"],
+                "emissions": [0.4, 0.3, 0.5],
+                "water_risk": [0.6, 0.2, 0.3],
+            }
+        )
+
+        company_row = pd.Series(
+            {
+                "na_entity_id": "TEST1",
+                "USA": 10,
+                "GBR": 5,
+                "JPN": 0,
+                "total_company_locations": 15,
+            }
+        )
+
+        priors = calculate_country_prior(
+            company_row=company_row,
+            country_priors=self.country_priors,
+            evidence_columns=["emissions", "water_risk"],
+            country_codes=self.country_codes,
+            entity_id="TEST1",
+        )
+
+        expected_emissions = (0.4 * 10 + 0.3 * 5) / 15  # weighted avg for emissions
+        expected_water = (0.6 * 10 + 0.2 * 5) / 15  # weighted avg for water_risk
+
+        self.assertEqual(len(priors), 2)
+        self.assertAlmostEqual(priors[0], expected_emissions)
+        self.assertAlmostEqual(priors[1], expected_water)
+
+    def test_vectorized_country_prior(self):
+        """Test that vectorized country prior calculation works correctly for both single and multiple columns"""
+        # Set up test data
+        country_priors = pd.DataFrame(
+            {
+                "country_code": ["USA", "GBR", "JPN", "DEU"],
+                "emissions": [0.4, 0.3, 0.5, 0.6],
+                "water_risk": [0.6, 0.2, 0.3, 0.4],
+                "biodiversity": [0.3, 0.5, 0.4, 0.2],
+            }
+        )
+
+        company_row = pd.Series(
+            {
+                "na_entity_id": "TEST1",
+                "USA": 20,  # 50% of assets
+                "GBR": 10,  # 25% of assets
+                "DEU": 10,  # 25% of assets
+                "total_company_locations": 40,
+            }
+        )
+
+        country_codes = ["USA", "GBR", "JPN", "DEU"]
+
+        # Test single column
+        single_col_result = calculate_country_prior(
+            company_row=company_row,
+            country_priors=country_priors,
+            evidence_columns="emissions",
+            country_codes=country_codes,
+            entity_id="TEST1",
+        )
+
+        # Expected: (0.4 * 0.5) + (0.3 * 0.25) + (0.6 * 0.25)
+        expected_emissions = 0.4 * (20 / 40) + 0.3 * (10 / 40) + 0.6 * (10 / 40)
+        self.assertEqual(len(single_col_result), 1)
+        self.assertAlmostEqual(single_col_result[0], expected_emissions)
+
+        # Test multiple columns
+        multi_col_result = calculate_country_prior(
+            company_row=company_row,
+            country_priors=country_priors,
+            evidence_columns=["emissions", "water_risk", "biodiversity"],
+            country_codes=country_codes,
+            entity_id="TEST1",
+        )
+
+        # Calculate expected values for each column
+        expected_water = 0.6 * (20 / 40) + 0.2 * (10 / 40) + 0.4 * (10 / 40)
+        expected_biodiversity = 0.3 * (20 / 40) + 0.5 * (10 / 40) + 0.2 * (10 / 40)
+
+        self.assertEqual(len(multi_col_result), 3)
+        self.assertAlmostEqual(multi_col_result[0], expected_emissions)
+        self.assertAlmostEqual(multi_col_result[1], expected_water)
+        self.assertAlmostEqual(multi_col_result[2], expected_biodiversity)
+
+        # Test zero weights case
+        zero_weights_row = pd.Series(
+            {
+                "na_entity_id": "TEST2",
+                "USA": 0,
+                "GBR": 0,
+                "DEU": 0,
+                "total_company_locations": 0,
+            }
+        )
+
+        zero_weights_result = calculate_country_prior(
+            company_row=zero_weights_row,
+            country_priors=country_priors,
+            evidence_columns=["emissions", "water_risk"],
+            country_codes=country_codes,
+            entity_id="TEST2",
+        )
+
+        # Should return None for each column when weights sum to zero
+        self.assertEqual(len(zero_weights_result), 2)
+        self.assertIsNone(zero_weights_result[0])
+        self.assertIsNone(zero_weights_result[1])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -319,6 +319,15 @@ def compute_posterior(
         Series containing posterior values for each metric, indexed by metric names
     """
     try:
+        # Check if both inputs are DataFrames
+        if not isinstance(evidences, pd.DataFrame) or evidences.empty:
+            logger.error("evidences must be a non-empty DataFrame")
+            return None
+
+        if not isinstance(priors, pd.DataFrame) or priors.empty:
+            logger.error("priors must be a non-empty DataFrame")
+            return None
+
         if not isinstance(k, (int, float)) or k < 0:
             logger.error("k must be a positive number")
             return None
@@ -327,9 +336,9 @@ def compute_posterior(
         if k == 0:
             if sample_size == 0:
                 return pd.DataFrame(0, index=evidences.index, columns=evidences.columns)
-            return evidences
+            return evidences.iloc[0]
         elif sample_size == 0:
-            return priors
+            return priors.iloc[0]
 
         # Compute weights safely, avoiding NaN by ensuring effective_k is never zero
         adapted_k = min(sample_size / k, 1)
@@ -338,11 +347,7 @@ def compute_posterior(
         # Compute posterior using vectorized operations
         theta_i = w_i * evidences + (1 - w_i) * priors
 
-        # Convert to Series while preserving column names
-        if isinstance(theta_i, pd.DataFrame):
-            return theta_i.iloc[0]
-        else:
-            return pd.Series(theta_i, index=evidences.columns)
+        return theta_i.iloc[0]
 
     except Exception as e:
         logger.error(f"Error during posterior computation: {str(e)}")

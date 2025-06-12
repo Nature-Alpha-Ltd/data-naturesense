@@ -375,7 +375,7 @@ def process_company_evidence(
     country_dist : pd.DataFrame
         Country distribution data containing:
         - na_entity_id: Company identifier
-        - total_company_locations: Optional total locations count
+        - estimated_material_assets_count: Estimated material asset locations count
         - One column per country code with number of assets
     country_priors : pd.DataFrame
         Country-level priors containing:
@@ -423,8 +423,9 @@ def process_company_evidence(
             "entity_name",
             "factset_entity_name",
             "factset_coverage_name",
-            "total_company_locations",
-            "number_material_assets",
+            "estimated_assets_count",
+            "estimated_material_assets_count",
+            "material_assets_types",
             "primary_sector",
             "partition_date",
         ]
@@ -438,12 +439,6 @@ def process_company_evidence(
             raise ValueError(
                 f"country_dist contains country codes not found in country_priors: {invalid_country_codes}"
             )
-
-        ## Sum of the assets listed under each country code
-        country_dist_copy = country_dist.copy()
-        country_cols = [col for col in country_dist.columns if col in country_codes]
-        country_assets_sum = country_dist_copy[country_cols].sum(axis=1)
-        country_dist_copy["total_company_locations"] = country_assets_sum
 
         # Validate input country_priors
         available_evidence = [
@@ -492,16 +487,18 @@ def process_company_evidence(
             ].iloc[0]
 
             # Get company country distribution and estimated_material_assets_count
-            if entity_id not in country_dist_copy["na_entity_id"].values:
+            if entity_id not in country_dist["na_entity_id"].values:
                 missing_entity_ids.append(entity_id)
                 # Initialize with correct length
                 weighted_priors = [None] * len(evidence_columns)
             else:
-                company_row = country_dist_copy[
-                    country_dist_copy["na_entity_id"] == entity_id
+                company_row = country_dist[
+                    country_dist["na_entity_id"] == entity_id
                 ].iloc[0]
 
-                estimated_material_assets_count = company_row["total_company_locations"]
+                estimated_material_assets_count = company_row[
+                    "estimated_material_assets_count"
+                ]
 
                 # Update estimated_material_assets_count in result_df
                 result_df.loc[

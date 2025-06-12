@@ -194,7 +194,7 @@ class TestCountryPriorCalculation(unittest.TestCase):
                 "USA": 0,
                 "GBR": 0,
                 "JPN": 0,
-                "total_company_locations": 0,
+                "estimated_material_assets_count": 0,
             }
         )
         prior = calculate_country_prior(
@@ -213,7 +213,7 @@ class TestCountryPriorCalculation(unittest.TestCase):
                 "na_entity_id": "TEST1",
                 "USA": 10,
                 "XXX": 5,  # Missing country
-                "total_company_locations": 15,
+                "estimated_material_assets_count": 15,
             }
         )
         prior = calculate_country_prior(
@@ -243,7 +243,7 @@ class TestCountryPriorCalculation(unittest.TestCase):
                 "USA": 10,
                 "GBR": 5,
                 "JPN": 0,
-                "total_company_locations": 15,
+                "estimated_material_assets_count": 15,
             }
         )
 
@@ -280,7 +280,7 @@ class TestCountryPriorCalculation(unittest.TestCase):
                 "USA": 20,  # 50% of assets
                 "GBR": 10,  # 25% of assets
                 "DEU": 10,  # 25% of assets
-                "total_company_locations": 40,
+                "estimated_material_assets_count": 40,
             }
         )
 
@@ -325,7 +325,7 @@ class TestCountryPriorCalculation(unittest.TestCase):
                 "USA": 0,
                 "GBR": 0,
                 "DEU": 0,
-                "total_company_locations": 0,
+                "estimated_material_assets_count": 0,
             }
         )
 

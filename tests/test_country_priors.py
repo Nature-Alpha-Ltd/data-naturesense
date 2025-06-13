@@ -779,7 +779,7 @@ class TestProcessCompanyEvidence(unittest.TestCase):
         # Since material_assets_count < k, posterior should take global_priors into consideration
         expected_weight = 5 / 10
         expected_posterior = round(
-            0.8 * expected_weight + 0.123 * (1 - expected_weight), 3
+            0.8 * expected_weight + self.global_priors[0] * (1 - expected_weight), 3
         )
         self.assertAlmostEqual(
             result.loc[result["na_entity_id"] == "TEST1", "emissions_posterior"].iloc[
@@ -882,7 +882,7 @@ class TestProcessCompanyEvidence(unittest.TestCase):
         test2_row = result[result["na_entity_id"] == "TEST2"]
         expected_weight = 5 / 10
         expected_posterior = round(
-            0.8 * expected_weight + 0.123 * (1 - expected_weight), 3
+            0.8 * expected_weight + self.global_priors[0] * (1 - expected_weight), 3
         )
         self.assertEqual(test2_row["emissions_posterior"].iloc[0], expected_posterior)
 

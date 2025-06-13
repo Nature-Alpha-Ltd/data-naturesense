@@ -1,5 +1,29 @@
 """
 python -m unittest discover tests 
+
+1. if material_assets_count >= threshold (e.g., 10 assets) 
+  then company's sensitive_locations is calc based on ALD scores only
+ 
+2. if material_assets_count == 0 & estimated_material_assets_count == 0
+  then company's sensitive_locations is NULL
+ 
+3. if ALD scores IS NULL 
+  then company's sensitive_locations is calc based on CountryPriors only
+ 
+4. if estimated_material_assets_count >= threshold
+  then company's sensitive_locations is calc based on both ALD scores and CountryPriors, using ratio material_assets_count/threshold
+  (e.g., material_assets_count 5 and threshold 10, then 50% ALD scores, 50% CountryPriors)
+ 
+5. if material_assets_count is between 1-9 & estimated_material_assets_count == 0
+  then company's sensitive_locations is calc based on both ALD scores and constant all companies avg, using ratio material_assets_count/threshold 
+  (e.g., material_assets_count 4 and threshold 10, then 40% ALD scores, 60% constant)
+ 
+6. if material_assets_count >= estimated_material_assets_count
+  then company's sensitive_locations is calc based on ALD scores only
+ 
+7. if estimated_material_assets_count < threshold
+  then company's sensitive_locations is calc based on both ALD scores and CountryPriors, using ratio material_assets_count/estimated_material_assets_count 
+  (e.g., material_assets_count 4 and estimated_material_assets_count 5, then 80% ALD scores, 20% CountryPriors)
 """
 
 import unittest

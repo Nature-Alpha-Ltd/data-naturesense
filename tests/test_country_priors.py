@@ -26,6 +26,7 @@ python -m unittest discover tests
   (e.g., material_assets_count 4 and estimated_material_assets_count 5, then 80% ALD scores, 20% CountryPriors)
 """
 
+import logging
 import unittest
 
 import numpy as np
@@ -794,6 +795,100 @@ class TestProcessCompanyEvidence(unittest.TestCase):
             ],
             company_data["emissions"][1],
         )
+
+    def test_no_company_evidence_and_country_dist_are_available(self):
+        """Test when no company_evidence and country_dist are available"""
+        company_data = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST1", "TEST2"],
+                "material_assets_count": [5, None],  # No data for TEST2
+                "emissions": [0.8, None],  # No data for TEST2
+            }
+        )
+
+        country_dist = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST1"],  # TEST2 is missing
+                "estimated_material_assets_count": [10],
+                "USA": [5],
+                "GBR": [5],
+            }
+        )
+
+        # Capture the warning message
+        with self.assertLogs(level="WARNING") as log:
+            result = process_company_evidence(
+                company_data=company_data,
+                country_dist=country_dist,
+                country_priors=self.country_priors,
+                evidence_columns=self.evidence_columns,
+                global_priors=self.global_priors,
+                k=10,
+            )
+
+            # Verify warning was logged
+            self.assertTrue(
+                any(
+                    "1 companies were not found in company country distribution data"
+                    in msg
+                    for msg in log.output
+                )
+            )
+
+        # It should set all posterior columns to NaN
+        missing_entity_row = result[result["na_entity_id"] == "TEST2"]
+        self.assertTrue(missing_entity_row["emissions_posterior"].isna().all())
+
+    def test_no_country_dist_is_available(self):
+        """Test when no country_dist is available"""
+        company_data = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST1", "TEST2", "TEST3"],
+                "material_assets_count": [10, 5, 15],
+                "emissions": [0.7, 0.8, 0.9],
+            }
+        )
+
+        country_dist = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST1"],  # TEST2 and TEST3 are missing
+                "estimated_material_assets_count": [10],
+                "USA": [5],
+                "GBR": [5],
+            }
+        )
+
+        # Capture the warning message
+        with self.assertLogs(level="WARNING") as log:
+            result = process_company_evidence(
+                company_data=company_data,
+                country_dist=country_dist,
+                country_priors=self.country_priors,
+                evidence_columns=self.evidence_columns,
+                global_priors=self.global_priors,
+                k=10,
+            )
+
+            # Verify warning was logged
+            self.assertTrue(
+                any(
+                    "2 companies were not found in company country distribution data"
+                    in msg
+                    for msg in log.output
+                )
+            )
+
+        # TEST2 should use global_priors since material_assets_count < k and no country_dist
+        test2_row = result[result["na_entity_id"] == "TEST2"]
+        expected_weight = 5 / 10
+        expected_posterior = round(
+            0.8 * expected_weight + 0.123 * (1 - expected_weight), 3
+        )
+        self.assertEqual(test2_row["emissions_posterior"].iloc[0], expected_posterior)
+
+        # TEST3 should keep original values since material_assets_count > k
+        test3_row = result[result["na_entity_id"] == "TEST3"]
+        self.assertEqual(test3_row["emissions_posterior"].iloc[0], 0.9)
 
 
 class TestAdjustPriorsAndK(unittest.TestCase):

@@ -455,8 +455,8 @@ def process_company_evidence(
         result_df = company_data.copy()
 
         # Add posterior columns to result_df, initialized as copies of original columns
-        for col in evidence_columns:
-            result_df[f"{col}_posterior"] = result_df[col]
+        posterior_cols = [f"{col}_posterior" for col in evidence_columns]
+        result_df[posterior_cols] = result_df[evidence_columns]
 
         # Add estimated_material_assets_count column initialized with 0
         result_df["estimated_material_assets_count"] = 0
@@ -559,7 +559,6 @@ def process_company_evidence(
             )
 
             # Populate result_df with posterior values
-            posterior_cols = [f"{col}_posterior" for col in evidence_columns]
             result_df.loc[
                 result_df["na_entity_id"] == entity_id, posterior_cols
             ] = posteriors.to_numpy(dtype="float64")

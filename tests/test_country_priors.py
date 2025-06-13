@@ -19,7 +19,6 @@ from main import (
 class TestPosteriorComputation(unittest.TestCase):
     def setUp(self):
         """Set up test data that can be used by multiple tests"""
-        # Create a smaller test dataset with just a few columns
         self.company_evidences = pd.DataFrame(
             {
                 "sensitive_locations": [0.895],
@@ -71,7 +70,8 @@ class TestPosteriorComputation(unittest.TestCase):
         ) + self.weighted_priors.iloc[0, 0] * (1 - 4 / 5)
         self.assertAlmostEqual(result.iloc[0], expected)
 
-    def test_sample_size_greater_than_k(self):  # Condition 1
+    ### Condition 1
+    def test_sample_size_greater_than_k(self):
         """Test when sample size is greater than k"""
         result = compute_posterior(
             evidences=self.company_evidences,
@@ -83,7 +83,8 @@ class TestPosteriorComputation(unittest.TestCase):
         for i in range(len(self.company_evidences.columns)):
             self.assertAlmostEqual(result.iloc[i], self.company_evidences.iloc[0, i])
 
-    def test_k_equals_sample_size(self):  # Condition 1
+    ### Condition 1
+    def test_k_equals_sample_size(self):
         """Test when k equals sample size"""
         result = compute_posterior(
             evidences=self.company_evidences,
@@ -95,7 +96,8 @@ class TestPosteriorComputation(unittest.TestCase):
         for i in range(len(self.company_evidences.columns)):
             self.assertAlmostEqual(result.iloc[i], self.company_evidences.iloc[0, i])
 
-    def test_zero_sample_size(self):  # Condition 3
+    ### Condition 3
+    def test_zero_sample_size(self):
         """Test with zero sample size"""
         result = compute_posterior(
             evidences=self.company_evidences,
@@ -341,6 +343,522 @@ class TestCountryPriorCalculation(unittest.TestCase):
         self.assertEqual(len(zero_weights_result), 2)
         self.assertIsNone(zero_weights_result[0])
         self.assertIsNone(zero_weights_result[1])
+
+
+class TestProcessCompanyEvidence(unittest.TestCase):
+    def setUp(self):
+        """Set up test data"""
+        self.company_data = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST1", "TEST2"],
+                "material_assets_count": [15, 5],
+                "emissions": [0.8, 0.6],
+            }
+        )
+        self.country_dist = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST1", "TEST2"],
+                "USA": [10, 0],
+                "GBR": [5, 5],
+                "JPN": [0, 0],
+                "estimated_material_assets_count": [15, 5],
+            }
+        )
+        self.country_priors = pd.DataFrame(
+            {
+                "country_code": ["USA", "GBR", "JPN"],
+                "emissions": [0.4, 0.3, 0.5],
+            }
+        )
+        self.evidence_columns = ["emissions"]
+        self.global_priors = [0.123, 0.456, 0.789]
+
+    def test_full_processing(self):
+        """Test complete processing pipeline"""
+        result = process_company_evidence(
+            company_data=self.company_data,
+            country_dist=self.country_dist,
+            country_priors=self.country_priors,
+            evidence_columns=self.evidence_columns,
+            global_priors=self.global_priors,
+        )
+        self.assertIn("emissions_posterior", result.columns)
+        self.assertEqual(len(result), len(self.company_data))
+
+    def test_missing_evidence_columns(self):
+        """Test handling of missing evidence columns"""
+        with self.assertRaises(ValueError) as context:
+            process_company_evidence(
+                company_data=self.company_data.copy(),
+                country_dist=self.country_dist,
+                country_priors=self.country_priors,
+                evidence_columns=self.evidence_columns
+                + ["water_usage"],  # water_usage is new
+                global_priors=self.global_priors,
+            )
+        self.assertIn(
+            "Missing required columns in company_data: {'water_usage'}",
+            str(context.exception),
+        )
+
+    def test_proportional_k(self):
+        """Test with proportional k"""
+        result = process_company_evidence(
+            company_data=self.company_data,
+            country_dist=self.country_dist,
+            country_priors=self.country_priors,
+            evidence_columns=self.evidence_columns,
+            global_priors=self.global_priors,
+            k=0.5,
+        )
+        self.assertIn("emissions_posterior", result.columns)
+
+    def test_process_company_evidence_with_effective_k(self):
+        """Test process_company_evidence with various scenarios for effective k calculation and prior adjustment"""
+        company_data = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST1", "TEST2", "TEST3"],
+                "material_assets_count": [60, 0, 0],  # Different asset scenarios
+                "emissions": [0.8, 0.7, 0.6],
+            }
+        )
+
+        country_dist = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST1", "TEST2", "TEST3"],
+                "USA": [40, 0, 30],
+                "GBR": [20, 0, 20],
+                "estimated_material_assets_count": [
+                    60,
+                    0,
+                    50,
+                ],  # Different distribution scenarios
+            }
+        )
+
+        result = process_company_evidence(
+            company_data=company_data,
+            country_dist=country_dist,
+            country_priors=self.country_priors,
+            evidence_columns=self.evidence_columns,
+            global_priors=self.global_priors,
+            k=50,
+        )
+
+        # Test case: assets_count is larger than k
+        expected_weight = 50 / 50
+        expected_posterior = 0.8 * expected_weight + (0.4 * 40 / 60 + 0.3 * 20 / 60) * (
+            1 - expected_weight
+        )
+        self.assertAlmostEqual(
+            result.loc[result["na_entity_id"] == "TEST1", "emissions_posterior"].iloc[
+                0
+            ],
+            expected_posterior,
+        )
+
+        # Test case: sum of locations and assets_count are 0
+        self.assertTrue(
+            pd.isna(
+                result.loc[
+                    result["na_entity_id"] == "TEST2", "emissions_posterior"
+                ].iloc[0]
+            )
+        )
+
+        # Test case: assets_count is 0, rely on country_dist
+        expected_posterior = 0.4 * 30 / 50 + 0.3 * 20 / 50
+        self.assertAlmostEqual(
+            result.loc[result["na_entity_id"] == "TEST3", "emissions_posterior"].iloc[
+                0
+            ],
+            expected_posterior,
+        )
+
+    ### Condition 2
+    def test_null_in_company_data(self):
+        """Test material_assets_count = 0 and estimated_material_assets_count = 0"""
+        company_data = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST1"],
+                "material_assets_count": [0],
+                "emissions": [None],
+            }
+        )
+        country_dist = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST1"],
+                "USA": [0],
+                "GBR": [0],
+                "JPN": [0],
+                "estimated_material_assets_count": [0],
+            }
+        )
+
+        result = process_company_evidence(
+            company_data=company_data,
+            country_dist=country_dist,
+            country_priors=self.country_priors,
+            evidence_columns=self.evidence_columns,
+            global_priors=self.global_priors,
+        )
+
+        # Should return NaN and this should be handle afterwards
+        self.assertTrue(
+            pd.isna(
+                result.loc[
+                    result["na_entity_id"] == "TEST1", "emissions_posterior"
+                ].iloc[0]
+            )
+        )
+
+    ### Condition 4
+    def test_company_prior_case_4(self):
+        """Test case 4: material_assets_count < k and estimated_material_assets_count > k"""
+        company_data = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST4"],
+                "material_assets_count": [5],  # Below k
+                "emissions": [0.9],
+            }
+        )
+
+        country_dist = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST4"],
+                "USA": [10],
+                "GBR": [5],
+                "estimated_material_assets_count": [15],  # Above k
+            }
+        )
+
+        result = process_company_evidence(
+            company_data=company_data,
+            country_dist=country_dist,
+            country_priors=self.country_priors,
+            evidence_columns=self.evidence_columns,
+            global_priors=self.global_priors,
+            k=10,
+        )
+
+        expected_weight = 5 / 10  # material_assets_count / effektive_k
+        expected_posterior = round(
+            (0.9 * expected_weight)
+            + ((0.4 * 10 / 15 + 0.3 * 5 / 15) * (1 - expected_weight)),
+            3,
+        )
+        self.assertAlmostEqual(
+            result.loc[result["na_entity_id"] == "TEST4", "emissions_posterior"].iloc[
+                0
+            ],
+            expected_posterior,
+        )
+
+    ### Condition 5
+    def test_company_prior_case_5(self):
+        """Test case 5: assets_count < k and estimated_material_assets_count = 0"""
+        company_data = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST5"],
+                "material_assets_count": [5],  # Below k
+                "emissions": [0.9],
+            }
+        )
+
+        country_dist = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST5"],
+                "USA": [0],
+                "GBR": [0],
+                "estimated_material_assets_count": [0],  # No country distribution
+            }
+        )
+
+        result = process_company_evidence(
+            company_data=company_data,
+            country_dist=country_dist,
+            country_priors=self.country_priors,
+            evidence_columns=self.evidence_columns,
+            global_priors=self.global_priors,
+            k=10,
+        )
+
+        # Should use default prior since there is no country distribution available
+        expected_weight = 5 / 10  # material_assets_count / k
+        expected_posterior = round(
+            (0.9 * expected_weight) + (self.global_priors[0] * (1 - expected_weight)), 3
+        )
+        self.assertAlmostEqual(
+            result.loc[result["na_entity_id"] == "TEST5", "emissions_posterior"].iloc[
+                0
+            ],
+            expected_posterior,
+        )
+
+    def test_zero_estimated_material_assets_but_enough_material_assets(self):
+        """
+        Test case when a company has estimated_material_assets_count = 0 but material_assets_count > k
+        """
+        company_data = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST1"],
+                "material_assets_count": [15],  # More assets than minimum k
+                "emissions": [0.8],
+            }
+        )
+
+        country_dist = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST1"],
+                "USA": [0],
+                "GBR": [0],
+                "estimated_material_assets_count": [0],
+            }
+        )
+
+        result = process_company_evidence(
+            company_data=company_data,
+            country_dist=country_dist,
+            country_priors=self.country_priors,
+            evidence_columns=self.evidence_columns,
+            global_priors=self.global_priors,
+            k=10,
+        )
+
+        # Since material_assets_count > k, posterior should equal evidence
+        self.assertAlmostEqual(
+            result.loc[result["na_entity_id"] == "TEST1", "emissions_posterior"].iloc[
+                0
+            ],
+            company_data["emissions"][0],
+        )
+
+    ### Condition 6
+    def test_company_prior_case_6(self):
+        """Test case 6: material_assets_count >= estimated_material_assets_count"""
+        company_data = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST6.1", "TEST6.2"],
+                "material_assets_count": [9, 6],
+                "emissions": [0.9, 0.8],
+            }
+        )
+
+        country_dist = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST6.1", "TEST6.2"],
+                "USA": [4, 4],
+                "GBR": [2, 2],
+                "estimated_material_assets_count": [6, 6],
+            }
+        )
+
+        result = process_company_evidence(
+            company_data=company_data,
+            country_dist=country_dist,
+            country_priors=self.country_priors,
+            evidence_columns=self.evidence_columns,
+            global_priors=self.global_priors,
+            k=10,
+        )
+
+        # Since material_assets_count >= estimated_material_assets_count, posterior should equal evidence
+        self.assertAlmostEqual(
+            result.loc[result["na_entity_id"] == "TEST6.1", "emissions_posterior"].iloc[
+                0
+            ],
+            company_data["emissions"][0],
+        )
+        self.assertAlmostEqual(
+            result.loc[result["na_entity_id"] == "TEST6.2", "emissions_posterior"].iloc[
+                0
+            ],
+            company_data["emissions"][1],
+        )
+
+    ### Condition 7
+    def test_company_prior_case_7(self):
+        """Test case 7: estimated_material_assets_count < k"""
+        company_data = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST7"],
+                "material_assets_count": [5],  # Below estimated_material_assets_count
+                "emissions": [0.9],
+            }
+        )
+
+        country_dist = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST7"],
+                "USA": [6],
+                "GBR": [2],
+                "estimated_material_assets_count": [8],  # Below k=10
+            }
+        )
+
+        result = process_company_evidence(
+            company_data=company_data,
+            country_dist=country_dist,
+            country_priors=self.country_priors,
+            evidence_columns=self.evidence_columns,
+            global_priors=self.global_priors,
+            k=10,
+        )
+
+        # k should be adjusted to estimated_material_assets_count=8
+        expected_weight = 5 / 8  # material_assets_count/estimated_material_assets_count
+        expected_prior = 0.4 * 6 / 8 + 0.3 * 2 / 8  # Weighted country priors
+        expected_posterior = round(
+            0.9 * expected_weight + expected_prior * (1 - expected_weight), 3
+        )
+        self.assertAlmostEqual(
+            result.loc[result["na_entity_id"] == "TEST7", "emissions_posterior"].iloc[
+                0
+            ],
+            expected_posterior,
+        )
+
+    def test_missing_isin_in_country_dist(self):
+        """
+        Test when na_entity_id is completely missing from country_dist.
+        Should default to using global_priors when material_assets_count < k and k is adjusted to 10.
+        """
+        # Setup test data with two companies
+        company_data = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST1", "TEST2"],
+                "material_assets_count": [5, 15],  # One below 10, one above
+                "emissions": [0.8, 0.7],
+            }
+        )
+
+        # Country distribution missing both companies
+        country_dist = pd.DataFrame(
+            {
+                "na_entity_id": ["TEST3"],  # Different id
+                "USA": [40],
+                "GBR": [20],
+                "estimated_material_assets_count": [60],
+            }
+        )
+
+        result = process_company_evidence(
+            company_data=company_data,
+            country_dist=country_dist,
+            country_priors=self.country_priors,
+            evidence_columns=self.evidence_columns,
+            global_priors=self.global_priors,
+            k=10,
+        )
+
+        # Since material_assets_count < k, posterior should take global_priors into consideration
+        expected_weight = 5 / 10
+        expected_posterior = round(
+            0.8 * expected_weight + 0.123 * (1 - expected_weight), 3
+        )
+        self.assertAlmostEqual(
+            result.loc[result["na_entity_id"] == "TEST1", "emissions_posterior"].iloc[
+                0
+            ],
+            expected_posterior,
+        )
+
+        # Since material_assets_count > k, posterior should equal evidence
+        self.assertAlmostEqual(
+            result.loc[result["na_entity_id"] == "TEST2", "emissions_posterior"].iloc[
+                0
+            ],
+            company_data["emissions"][1],
+        )
+
+
+class TestAdjustPriorsAndK(unittest.TestCase):
+    def test_calculate_effective_k(self):
+        """Test the calculate_effective_k function"""
+        # Test proportional k
+        result = calculate_effective_k(
+            k=0.5, estimated_material_assets_count=100, material_assets_count=40
+        )
+        self.assertEqual(result, 50)  # 0.5 * 100 = 50
+
+        # Test when estimated_material_assets_count is less than k
+        result = calculate_effective_k(
+            k=50, estimated_material_assets_count=30, material_assets_count=25
+        )
+        self.assertEqual(
+            result, 30
+        )  # k should be reduced to match estimated_material_assets_count
+
+        # Test when material_assets_count exceeds estimated_material_assets_count but is less than k
+        result = calculate_effective_k(
+            k=100, estimated_material_assets_count=40, material_assets_count=60
+        )
+        self.assertEqual(result, 60)  # k should match the higher material_assets_count
+
+        # Test when material_assets_count exceeds both estimated_material_assets_count and k
+        result = calculate_effective_k(
+            k=50, estimated_material_assets_count=40, material_assets_count=60
+        )
+        self.assertEqual(
+            result, 50
+        )  # k should remain unchanged as it's less than material_assets_count
+
+        # Test with proportional k and material_assets_count exceeding estimated_material_assets_count
+        result = calculate_effective_k(
+            k=0.5, estimated_material_assets_count=100, material_assets_count=150
+        )
+        self.assertEqual(
+            result, 50
+        )  # 0.5 * 150 = 75 (using updated total from material_assets_count)
+
+    def test_adjust_priors_and_k(self):
+        """Test the adjustment of priors and k"""
+        # Test case 1: effective_k < k and prior is None
+        # Should update both k and priors
+        priors = [None, 0.3, None]
+        effective_k = 5
+        k = 10
+        default_priors = [0.123, 0.456, 0.789]
+        adjusted_priors, adjusted_k = no_guestimates_adjust_priors_and_k(
+            priors, effective_k, k, default_priors
+        )
+        self.assertEqual(adjusted_k, 10)  # Should be set to k
+        self.assertEqual(adjusted_priors, [0.123, 0.3, 0.789])  # None values replaced
+
+        # Test case 2: effective_k > k and prior has None values
+        # Should keep effective_k and priors unchanged
+        priors = [None, 0.3, None]
+        effective_k = 15
+        k = 10
+        adjusted_priors, adjusted_k = no_guestimates_adjust_priors_and_k(
+            priors, effective_k, k, default_priors
+        )
+        self.assertEqual(adjusted_k, 15)  # Should remain unchanged
+        self.assertEqual(adjusted_priors, [None, 0.3, None])  # Should remain unchanged
+
+        # Test case 3: effective_k < k but no None values
+        # Should keep priors but update k
+        priors = [0.4, 0.3, 0.5]
+        effective_k = 5
+        k = 10
+        adjusted_priors, adjusted_k = no_guestimates_adjust_priors_and_k(
+            priors, effective_k, k, default_priors
+        )
+        self.assertEqual(adjusted_k, 5)  # Should remain unchanged
+        self.assertEqual(adjusted_priors, [0.4, 0.3, 0.5])  # Should remain unchanged
+
+        # Test case 4: weighted_priors is None (not a list)
+        # Should create new list with default value and update k
+        priors = [None, None, None]
+        effective_k = 5
+        k = 10
+        adjusted_priors, adjusted_k = no_guestimates_adjust_priors_and_k(
+            priors, effective_k, k, default_priors
+        )
+        self.assertEqual(adjusted_k, 10)  # Should be set to k
+        self.assertEqual(
+            adjusted_priors, default_priors
+        )  # Should be list with default value
 
 
 if __name__ == "__main__":

@@ -427,7 +427,7 @@ def process_company_evidence(
         if "na_entity_id" not in country_dist.columns:
             raise ValueError("country_dist must contain 'na_entity_id' column")
 
-        ## Check if country_dist has any country codes not in country_priors
+        # Check if country_dist has any country codes not in country_priors
         country_codes = country_priors["country_code"].tolist()
         country_dist_basic_cols = [
             "na_entity_id",
@@ -470,8 +470,8 @@ def process_company_evidence(
         posterior_cols = [f"{col}_posterior" for col in evidence_columns]
         result_df[posterior_cols] = result_df[evidence_columns]
 
-        # Add estimated_material_assets_count column initialized with 0
-        result_df["estimated_material_assets_count"] = 0
+        # Add estimated_material_assets_count column initialized with None
+        result_df["estimated_material_assets_count"] = None
 
         # Keep track of missing entity ids
         missing_entity_ids = []
@@ -480,24 +480,32 @@ def process_company_evidence(
         for entity_id in tqdm(
             result_df["na_entity_id"].unique(), desc="Implementing NatureSense Priors"
         ):
-            # Initialize
-            material_assets_count = int(
-                company_data.loc[
-                    company_data["na_entity_id"] == entity_id, "material_assets_count"
-                ].iloc[0]
-            )
-
-            estimated_material_assets_count = 0
-
-            # Get company evidence values for all columns
+            # Get company data
             company_evidence = result_df.loc[
                 result_df["na_entity_id"] == entity_id, evidence_columns
+            ].iloc[0]
+
+            # If no company_evidence and country_dist are available, set all posterior columns to NaN
+            if (
+                company_evidence.isna().all()
+                and entity_id not in country_dist["na_entity_id"].values
+            ):
+                result_df.loc[
+                    result_df["na_entity_id"] == entity_id, posterior_cols
+                ] = np.nan
+                missing_entity_ids.append(entity_id)
+                continue
+
+            # Initialize
+            material_assets_count = company_data.loc[
+                company_data["na_entity_id"] == entity_id, "material_assets_count"
             ].iloc[0]
 
             # Get company country distribution and estimated_material_assets_count
             if entity_id not in country_dist["na_entity_id"].values:
                 missing_entity_ids.append(entity_id)
                 # Initialize with correct length
+                estimated_material_assets_count = 0
                 weighted_priors = [None] * len(evidence_columns)
             else:
                 company_row = country_dist[
@@ -520,10 +528,9 @@ def process_company_evidence(
 
                 # If both material_assets_count and estimated_material_assets_count are 0, set all evidence columns to None
                 if material_assets_count == 0 and estimated_material_assets_count == 0:
-                    for col in evidence_columns:
-                        result_df.loc[
-                            result_df["na_entity_id"] == entity_id, f"{col}_posterior"
-                        ] = np.nan
+                    result_df.loc[
+                        result_df["na_entity_id"] == entity_id, posterior_cols
+                    ] = np.nan
                     continue
 
                 # Get weighted priors
@@ -640,9 +647,9 @@ def main(request):
             .reset_index()
         )
 
-        companies_evidences = ald_counts.merge(
-            ald_averages, on="na_entity_id", how="left"
-        )
+        companies_evidences = master_table.merge(
+            ald_counts, on="na_entity_id", how="left"
+        ).merge(ald_averages, on="na_entity_id", how="left")
 
         # Calculate global median for each metric in naturesense_metrics
         ald_global_median = {
@@ -662,11 +669,8 @@ def main(request):
             k=10,
         )
 
-        # Join results to master table
-        result_export = master_table.merge(result, on="na_entity_id", how="left")
-
         # Organise columns
-        result_export = result_export[
+        result_export = result[
             [
                 "na_entity_id",
                 "entity_isin",

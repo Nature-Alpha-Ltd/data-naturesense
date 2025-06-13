@@ -38,6 +38,7 @@ BQ_DATASET = cfg["BQ_DATASET"]
 ALD = cfg["ALD"]
 ASSET_COUNTS_GUESTIMATES = cfg["ASSET_COUNTS_GUESTIMATES"]
 NATURESENSE_COUNTRY = cfg["NATURESENSE_COUNTRY"]
+MASTER_TABLE = cfg["MASTER_TABLE"]
 FILE_NAME = cfg["FILE_NAME"]
 
 # Define NatureSense metrics
@@ -129,7 +130,18 @@ def load_data() -> tuple:
     logging.info("Loading data from %s", NATURESENSE_COUNTRY)
     naturesense_country = run_query(query_ns_country)
 
-    return ald, assets_guestimates, naturesense_country
+    # ISIN master table
+    query_master_table = f"""
+    SELECT
+        na_entity_id,
+        entity_isin,
+        entity_name
+    FROM {MASTER_TABLE};
+    """
+    logging.info("Loading data from %s", MASTER_TABLE)
+    master_table = run_query(query_master_table)
+
+    return ald, assets_guestimates, naturesense_country, master_table
 
 
 def get_company_countries(company_row: pd.Series) -> List[str]:
@@ -586,7 +598,7 @@ def main(request):
     """
     try:
         # Load data from BigQuery
-        ald, assets_guestimates, naturesense_country = load_data()
+        ald, assets_guestimates, naturesense_country, master_table = load_data()
 
         # Generate companies evidences, i.e., aggregate ALD to company
         ald["material_asset"] = ~ald["asset_type_id"].isin([11, 12]).astype(bool)
@@ -650,10 +662,15 @@ def main(request):
             k=10,
         )
 
+        # Join results to master table
+        result_export = master_table.merge(result, on="na_entity_id", how="left")
+
         # Organise columns
-        result = result[
+        result_export = result_export[
             [
                 "na_entity_id",
+                "entity_isin",
+                "entity_name",
                 "assets_count",
                 "material_assets_count",
                 "estimated_material_assets_count",
@@ -667,7 +684,7 @@ def main(request):
         ]
 
         # Write results to BigQuery
-        save_results(result, FILE_NAME, BQ_DATASET, ENVIRONMENT, PROJECT_ID)
+        save_results(result_export, FILE_NAME, BQ_DATASET, ENVIRONMENT, PROJECT_ID)
 
         return f"{FILE_NAME} metrics calculated and saved successfully.", 200
 

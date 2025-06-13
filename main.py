@@ -477,10 +477,6 @@ def process_company_evidence(
 
             estimated_material_assets_count = 0
 
-            # If material_assets_count >= k don't adjust company evidence
-            if material_assets_count >= k:
-                continue
-
             # Get company evidence values for all columns
             company_evidence = result_df.loc[
                 result_df["na_entity_id"] == entity_id, evidence_columns
@@ -505,6 +501,10 @@ def process_company_evidence(
                     result_df["na_entity_id"] == entity_id,
                     "estimated_material_assets_count",
                 ] = estimated_material_assets_count
+
+                # If material_assets_count >= k don't adjust company evidence
+                if material_assets_count >= k:
+                    continue
 
                 # If both material_assets_count and estimated_material_assets_count are 0, set all evidence columns to None
                 if material_assets_count == 0 and estimated_material_assets_count == 0:

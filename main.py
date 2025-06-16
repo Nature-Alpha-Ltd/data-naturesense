@@ -521,7 +521,7 @@ def process_company_evidence(
                 result_df.loc[
                     result_df["na_entity_id"] == entity_id,
                     "estimated_material_assets_count",
-                ] = estimated_material_assets_count
+                ] = int(estimated_material_assets_count)
 
                 # If material_assets_count >= k don't adjust company evidence
                 if material_assets_count >= k:
@@ -627,6 +627,14 @@ def main(request):
             .reset_index()
         )
 
+        count_columns = [
+            "assets_count",
+            "priority_assets_count",
+            "material_assets_count",
+            "in_water_scarcity_count",
+        ]
+        ald_counts[count_columns] = ald_counts[count_columns].astype(int)
+
         ald_counts["priority_assets_percentage"] = round(
             (ald_counts["priority_assets_count"] / ald_counts["assets_count"]) * 100, 3
         )
@@ -670,6 +678,16 @@ def main(request):
             global_priors=ald_global_median,
             k=10,
         )
+
+        # Ensure integer fields
+        integer_columns = [
+            "assets_count",
+            "priority_assets_count",
+            "material_assets_count",
+            "in_water_scarcity_count",
+            "estimated_material_assets_count",
+        ]
+        result[integer_columns] = result[integer_columns].astype("Int64")
 
         # Organise columns
         result_export = result[

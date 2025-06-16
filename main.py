@@ -35,11 +35,13 @@ cfg = config[ENVIRONMENT]
 
 PROJECT_ID = cfg["PROJECT_ID"]
 BQ_DATASET = cfg["BQ_DATASET"]
+FILE_NAME = cfg["FILE_NAME"]
+BQ_DATASET_OTHER = cfg["BQ_DATASET_OTHER"]
+FILE_NAME_OTHER = cfg["FILE_NAME_OTHER"]
 ALD = cfg["ALD"]
 ASSET_COUNTS_GUESTIMATES = cfg["ASSET_COUNTS_GUESTIMATES"]
 NATURESENSE_COUNTRY = cfg["NATURESENSE_COUNTRY"]
 MASTER_TABLE = cfg["MASTER_TABLE"]
-FILE_NAME = cfg["FILE_NAME"]
 
 # Define NatureSense metrics
 naturesense_metrics = [
@@ -679,7 +681,7 @@ def main(request):
             k=10,
         )
 
-        # Ensure integer fields
+        # Ensure data types
         integer_columns = [
             "assets_count",
             "priority_assets_count",
@@ -689,12 +691,17 @@ def main(request):
         ]
         result[integer_columns] = result[integer_columns].astype("Int64")
 
-        # Organise columns
-        result_export = result[
+        result["reference_date"] = pd.to_datetime(result["reference_date"]).dt.strftime(
+            "%Y%m"
+        )
+
+        # Organise files to export
+        ns_enhanced = result[
             [
                 "na_entity_id",
                 "entity_isin",
                 "entity_name",
+                # "primary_sector",
                 "assets_count",
                 "material_assets_count",
                 "estimated_material_assets_count",
@@ -708,8 +715,35 @@ def main(request):
             ]
         ]
 
+        ns_final = result.drop(columns=naturesense_metrics).rename(
+            columns={
+                col: col.replace("_posterior", "")
+                for col in result.columns
+                if col.endswith("_posterior")
+            }
+        )
+        ns_final = result[
+            [
+                "na_entity_id",
+                "entity_isin",
+                "entity_name",
+                # "primary_sector",
+                "assets_count",
+                "material_assets_count",
+                "priority_assets_count",
+                "priority_assets_percentage",
+                *naturesense_metrics,
+                "reference_date",
+                "in_water_scarcity_count",
+                "in_water_scarcity_percentage",
+            ]
+        ]
+
         # Write results to BigQuery
-        save_results(result_export, FILE_NAME, BQ_DATASET, ENVIRONMENT, PROJECT_ID)
+        save_results(
+            ns_enhanced, FILE_NAME_OTHER, BQ_DATASET_OTHER, ENVIRONMENT, PROJECT_ID
+        )
+        save_results(ns_final, FILE_NAME, BQ_DATASET, ENVIRONMENT, PROJECT_ID)
 
         return f"{FILE_NAME} metrics calculated and saved successfully.", 200
 

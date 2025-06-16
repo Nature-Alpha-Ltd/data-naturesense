@@ -23,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 1. Read your config.ini
+# Read your config.ini
 config = ConfigParser()
 config.read("config.ini")
 
@@ -106,7 +106,8 @@ def load_data() -> tuple:
         cumulative_impact_on_oceans, 
         critical_areas_for_biodiversity_and_ncp, 
         areas_of_importance_for_biodiversity_and_climate,
-        in_water_scarcity
+        in_water_scarcity,
+        solved_date
     FROM {ALD};
     """
     logging.info("Loading data from %s", ALD)
@@ -621,6 +622,7 @@ def main(request):
                 priority_assets_count=("priority_asset", "sum"),
                 material_assets_count=("material_asset", "sum"),
                 in_water_scarcity_count=("in_water_scarcity", "sum"),
+                reference_date=("solved_date", "max"),
             )
             .reset_index()
         )
@@ -684,6 +686,7 @@ def main(request):
                 "in_water_scarcity_percentage",
                 *naturesense_metrics,
                 *[f"{col}_posterior" for col in naturesense_metrics],
+                "reference_date",
             ]
         ]
 

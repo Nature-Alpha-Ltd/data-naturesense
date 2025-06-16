@@ -473,8 +473,14 @@ def process_company_evidence(
         posterior_cols = [f"{col}_posterior" for col in evidence_columns]
         result_df[posterior_cols] = result_df[evidence_columns]
 
-        # Add estimated_material_assets_count column initialized with None
-        result_df["estimated_material_assets_count"] = None
+        # Join estimated_material_assets_count and partition_date
+        result_df = result_df.merge(
+            country_dist[
+                ["na_entity_id", "estimated_material_assets_count", "partition_date"]
+            ],
+            on="na_entity_id",
+            how="left",
+        )
 
         # Keep track of missing entity ids
         missing_entity_ids = []
@@ -624,7 +630,7 @@ def main(request):
                 priority_assets_count=("priority_asset", "sum"),
                 material_assets_count=("material_asset", "sum"),
                 in_water_scarcity_count=("in_water_scarcity", "sum"),
-                reference_date=("solved_date", "max"),
+                solved_date=("solved_date", "max"),
             )
             .reset_index()
         )
@@ -681,7 +687,7 @@ def main(request):
             k=10,
         )
 
-        # Ensure data types
+        # Ensure integer fields
         integer_columns = [
             "assets_count",
             "priority_assets_count",
@@ -691,9 +697,11 @@ def main(request):
         ]
         result[integer_columns] = result[integer_columns].astype("Int64")
 
-        result["reference_date"] = pd.to_datetime(result["reference_date"]).dt.strftime(
-            "%Y%m"
+        # Get latest date between ALD's solved_date and Guestimator's partition_date, then convert to YYYYMM
+        result["reference_date"] = pd.to_datetime(
+            result[["solved_date", "partition_date"]].max(axis=1)
         )
+        result["reference_date"] = result["reference_date"].dt.strftime("%Y%m")
 
         # Organise files to export
         ns_enhanced = result[
@@ -711,6 +719,8 @@ def main(request):
                 "in_water_scarcity_percentage",
                 *naturesense_metrics,
                 *[f"{col}_posterior" for col in naturesense_metrics],
+                "solved_date",
+                "partition_date",
                 "reference_date",
             ]
         ]

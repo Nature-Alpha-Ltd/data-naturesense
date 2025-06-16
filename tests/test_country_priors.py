@@ -387,6 +387,7 @@ class TestProcessCompanyEvidence(unittest.TestCase):
                 "GBR": [5, 5],
                 "JPN": [0, 0],
                 "estimated_material_assets_count": [15, 5],
+                "partition_date": ["2025-03-17", "2025-03-17"],
             }
         )
         self.country_priors = pd.DataFrame(
@@ -453,11 +454,8 @@ class TestProcessCompanyEvidence(unittest.TestCase):
                 "na_entity_id": ["TEST1", "TEST2", "TEST3"],
                 "USA": [40, 0, 30],
                 "GBR": [20, 0, 20],
-                "estimated_material_assets_count": [
-                    60,
-                    0,
-                    50,
-                ],  # Different distribution scenarios
+                "estimated_material_assets_count": [60, 0, 50],
+                "partition_date": ["2025-03-17", "2025-03-17", "2025-03-17"],
             }
         )
 
@@ -517,6 +515,7 @@ class TestProcessCompanyEvidence(unittest.TestCase):
                 "GBR": [0],
                 "JPN": [0],
                 "estimated_material_assets_count": [0],
+                "partition_date": ["2025-03-17"],
             }
         )
 
@@ -554,6 +553,7 @@ class TestProcessCompanyEvidence(unittest.TestCase):
                 "USA": [10],
                 "GBR": [5],
                 "estimated_material_assets_count": [15],  # Above k
+                "partition_date": ["2025-03-17"],
             }
         )
 
@@ -596,6 +596,7 @@ class TestProcessCompanyEvidence(unittest.TestCase):
                 "USA": [0],
                 "GBR": [0],
                 "estimated_material_assets_count": [0],  # No country distribution
+                "partition_date": ["2025-03-17"],
             }
         )
 
@@ -638,6 +639,7 @@ class TestProcessCompanyEvidence(unittest.TestCase):
                 "USA": [0],
                 "GBR": [0],
                 "estimated_material_assets_count": [0],
+                "partition_date": ["2025-03-17"],
             }
         )
 
@@ -675,6 +677,7 @@ class TestProcessCompanyEvidence(unittest.TestCase):
                 "USA": [4, 4],
                 "GBR": [2, 2],
                 "estimated_material_assets_count": [6, 6],
+                "partition_date": ["2025-03-17", "2025-03-17"],
             }
         )
 
@@ -718,6 +721,7 @@ class TestProcessCompanyEvidence(unittest.TestCase):
                 "USA": [6],
                 "GBR": [2],
                 "estimated_material_assets_count": [8],  # Below k=10
+                "partition_date": ["2025-03-17"],
             }
         )
 
@@ -764,6 +768,7 @@ class TestProcessCompanyEvidence(unittest.TestCase):
                 "USA": [40],
                 "GBR": [20],
                 "estimated_material_assets_count": [60],
+                "partition_date": ["2025-03-17"],
             }
         )
 
@@ -809,9 +814,10 @@ class TestProcessCompanyEvidence(unittest.TestCase):
         country_dist = pd.DataFrame(
             {
                 "na_entity_id": ["TEST1"],  # TEST2 is missing
-                "estimated_material_assets_count": [10],
                 "USA": [5],
                 "GBR": [5],
+                "estimated_material_assets_count": [10],
+                "partition_date": ["2025-03-17"],
             }
         )
 
@@ -852,9 +858,10 @@ class TestProcessCompanyEvidence(unittest.TestCase):
         country_dist = pd.DataFrame(
             {
                 "na_entity_id": ["TEST1"],  # TEST2 and TEST3 are missing
-                "estimated_material_assets_count": [10],
                 "USA": [5],
                 "GBR": [5],
+                "estimated_material_assets_count": [10],
+                "partition_date": ["2025-03-17"],
             }
         )
 

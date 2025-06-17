@@ -9,13 +9,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from utils.gcp_tools import (
-    get_git_branch,
-    last_day_of_month,
-    run_query,
-    save_results,
-    write_df_to_bq,
-)
+from utils.gcp_tools import run_query, save_results
 
 # Configure logging
 logging.basicConfig(

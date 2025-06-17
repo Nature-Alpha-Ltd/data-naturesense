@@ -122,7 +122,33 @@ def load_data() -> tuple:
     # NatureSense country level
     query_ns_country = f"""
     SELECT
-        *
+        country_code,
+        country,
+        sensitive_locations, 
+        biodiversity_importance, 
+        high_ecosystem_integrity, 
+        decline_in_ecosystem_integrity,
+        physical_water_risk, 
+        ecosystem_services_provision_importance, 
+        proximity_to_protected_areas, 
+        proximity_to_kbas,
+        species_rarity_weighted_richness, 
+        species_threat_abatement, 
+        species_threat_abatement_marine, 
+        proximity_to_mangroves,
+        ecosystem_intactness_index, 
+        biodiversity_intactness_index, 
+        ocean_health_index, 
+        trend_in_ecosystem_intactness_index,
+        deforestation_hotspots, 
+        water_availability, 
+        water_pollution, 
+        drought, 
+        riverine_flood, 
+        coastal_flood, 
+        cumulative_impact_on_oceans, 
+        critical_areas_for_biodiversity_and_ncp, 
+        areas_of_importance_for_biodiversity_and_climate
     FROM {NATURESENSE_COUNTRY};
     """
     logging.info("Loading data from %s", NATURESENSE_COUNTRY)

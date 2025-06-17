@@ -1,38 +1,39 @@
-# Nature RevX Metrics
+# NatureSense Monthly Data
 
-A Google Cloud Function–based pipeline to calculate Nature RevX metrics from BigQuery data, with local development, CI/CD, and automated deployments.
+A Google Cloud Function–based pipeline to generate NatureSense monthly data from BigQuery, with local development, CI/CD, and automated deployments.
 
 ---
 
 ## Table of Contents
 
-- [Nature RevX Metrics](#nature-revx-metrics)
-  - [Table of Contents](#table-of-contents)
-  - [Features](#features)
-  - [Prerequisites](#prerequisites)
-  - [Getting Started](#getting-started)
-    - [Clone \& Shell Setup](#clone--shell-setup)
-    - [Local Python Environment](#local-python-environment)
-      - [Run Onboarding Script](#run-onboarding-script)
-      - [Environment \& Config](#environment--config)
-  - [Running Locally](#running-locally)
-  - [Linting \& Formatting](#linting--formatting)
-  - [Pre‑commit Hooks](#precommit-hooks)
-  - [Testing \& Coverage](#testing--coverage)
-  - [CI/CD (GitHub Actions)](#cicd-github-actions)
-  - [Directory Layout](#directory-layout)
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Getting Started](#getting-started)
+  - [Clone & Shell Setup](#clone--shell-setup)
+  - [Local Python Environment](#local-python-environment)
+    - [Run Onboarding Script](#run-onboarding-script)
+    - [Environment & Config](#environment--config)
+- [Running Locally](#running-locally)
+- [Linting & Formatting](#linting--formatting)
+- [Pre‑commit Hooks](#precommit-hooks)
+- [Testing & Coverage](#testing--coverage)
+- [CI/CD (GitHub Actions)](#cicd-github-actions)
+- [Directory Layout](#directory-layout)
 
 ---
 
 ## Features
 
-- Extracts and validates mapping tables in BigQuery  
-- Merges revenue splits with impact & dependency scores  
-- Calculates final Nature RevX metrics  
-- Deploys as HTTP‑triggered Cloud Function  
-- Local dev environment with Black, isort, pytest, pre‑commit hooks  
-- GitHub Actions for PR checks (lint, formatting, tests/coverage)  
-- Manual “Run workflow” button for on‑demand feature‑branch deploys  
+- Loads ALD (with NatureSense metrics) and companies' assets guestimator data from BigQuery
+- Aggregates ALD to company-level NatureSense metrics
+- Implements Bayesian approach with country-level priors (i.e., create posteriors)
+- Write results to BigQuery: 
+  - `gen2_files.naturesense` (monthly data as to be distributed to clients)
+  - `other_gen2_files.naturesense_enhanced` (including pre and pos enhancement columns)
+- Deploys as HTTP‑triggered Cloud Function
+- Local dev environment with Black, isort, pytest, pre‑commit hooks
+- GitHub Actions for PR checks (lint, formatting, tests/coverage)
+- Manual "Run workflow" button for on‑demand feature‑branch deploys
 - Single `config.ini` for `dev`/`prod` profiles; only `ENVIRONMENT` is passed at runtime
 
 ---
@@ -49,8 +50,8 @@ A Google Cloud Function–based pipeline to calculate Nature RevX metrics from B
 ### Clone & Shell Setup
 
 ```bash
-git clone https://github.com/Nature-Alpha-Ltd/data-nrevx.git
-cd data-nrevx
+git clone https://github.com/Nature-Alpha-Ltd/data-naturesense.git
+cd data-naturesense
 ```
 
 ### Local Python Environment
@@ -71,24 +72,30 @@ We centralise non‑sensitive settings in config.ini
 ```ini
 [dev]
 PROJECT_ID = na-datalake
-BQ_DATASET = monthly_files_2_dev
-ENTITIES_TABLE_ID = na-datalake.mappings.isin_master_table_latest
-ISIN_MAPPING = na-datalake.processed_data.factsetid_to_isin_master_latest
-MM_TABLE = na-datalake.raw_internal_data_ingestion.mm_dependencies_impacts_v2
-GICS_MAPPING = na-datalake.mappings.rbics_to_gics_NEW_latest
-RBICS_L6 = na-datalake.production_ready_access_layer.rbics_l6_revenue_scaled
-MISSING_L6_MAP = na-datalake.processed_data.check_for_missing_l6_mapping
+BQ_DATASET = gen2_files_dev
+FILE_NAME = naturesense
+BQ_DATASET_OTHER = other_gen2_files_dev
+FILE_NAME_OTHER = naturesense_enhanced
+ALD = na-datalake.production_ready_access_layer.naturesense_solved_assets
+ASSET_COUNTS_GUESTIMATES = na-datalake.production_ready_access_layer.guestimator_latest
+NATURESENSE_COUNTRY = na-datalake.production_ready_access_layer.naturesense_country_level
+MASTER_TABLE = na-datalake.production_ready_access_layer.isin_master_table_latest
+PRIMARY_SECTOR = na-datalake.production_ready_access_layer.isin_primary_gics_sector
 
 [prod]
 PROJECT_ID = na-datalake
-BQ_DATASET = monthly_files_2
-ENTITIES_TABLE_ID = na-datalake.mappings.isin_master_table_latest
-ISIN_MAPPING = na-datalake.processed_data.factsetid_to_isin_master_latest
-MM_TABLE = na-datalake.raw_internal_data_ingestion.mm_dependencies_impacts_v2
-GICS_MAPPING = na-datalake.mappings.rbics_to_gics_NEW_latest
-RBICS_L6 = na-datalake.production_ready_access_layer.rbics_l6_revenue_scaled
-MISSING_L6_MAP = na-datalake.processed_data.check_for_missing_l6_mapping
+BQ_DATASET = gen2_files
+FILE_NAME = naturesense
+BQ_DATASET_OTHER = other_gen2_files
+FILE_NAME_OTHER = naturesense_enhanced
+ALD = na-datalake.production_ready_access_layer.naturesense_solved_assets
+ASSET_COUNTS_GUESTIMATES = na-datalake.production_ready_access_layer.guestimator_latest
+NATURESENSE_COUNTRY = na-datalake.production_ready_access_layer.naturesense_country_level
+MASTER_TABLE = na-datalake.production_ready_access_layer.isin_master_table_latest
+PRIMARY_SECTOR = na-datalake.production_ready_access_layer.isin_primary_gics_sector
 ```
+
+For local development, you need to add a Service Account JSON file to authenticate with Google Cloud Platform. Place the JSON file in the repository root directory. The file should be named according to your project's naming convention (e.g., `na-datalake-*.json`).
 
 Keep a minimal local .env (not committed)
 
@@ -129,7 +136,7 @@ isort . --profile=black
 
 ## Pre‑commit Hooks
 
-We’ve configured:
+We've configured:
 
 - black
 - isort --profile=black
@@ -168,11 +175,11 @@ We have two workflows:
 1. **pr_check.yml** - on PR to dev or main, runs:
    - Black & isort (check only)
    - pytest + coverage (posts a comment under your PR)
-2. **deploy-cloud-funcion.yml** - on push to dev/main or manual dispatch: WORK IN PROGRESS
+2. **deploy-cloud-funcion.yml** - on push to dev/main or manual dispatch:
    - Authenticates to GCP via Workload Identity Federation
    - Deploys to the correct Cloud Function based on ENVIRONMENT
 
-You can trigger a manual deployment from any branch by using the “Run workflow” button in the Actions tab, choosing the branch and environment.
+You can trigger a manual deployment from any branch by using the "Run workflow" button in the Actions tab, choosing the branch and environment.
 
 ---
 
@@ -186,11 +193,10 @@ You can trigger a manual deployment from any branch by using the “Run workflow
 ├── requirements-dev.txt     # requirements file used when developing
 ├── setup.sh                 # onboarding script
 ├── utils/
-│   ├── gcp_tools.py
-│   └── nrevx_engine.py
+│   └── gcp_tools.py        # GCP utilities
 ├── tests/
-│   ├── test_gcp_tools.py
-│   └── test_nrevx_engine.py
+│   └── test_ns_aggregation.py
+│   └── test_gcp_tools.py
 ├── .pre-commit-config.yaml  # pre commit file with rules
 ├── .github/
 │   └── workflows/

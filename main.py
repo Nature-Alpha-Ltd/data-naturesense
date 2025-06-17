@@ -729,7 +729,8 @@ def main(request):
         result["reference_date"] = result["reference_date"].dt.strftime("%Y%m")
 
         # Organise files to export
-        ns_enhanced = result[
+        ## NatureSense enhanced (including pre and pos enhancement columns, i.e., posteriors)
+        enhanced = result[
             [
                 "na_entity_id",
                 "entity_isin",
@@ -749,15 +750,15 @@ def main(request):
                 "reference_date",
             ]
         ]
-
-        ns_final = result.drop(columns=naturesense_metrics).rename(
+        ## NatureSense data (only columns to be distributed to clients)
+        final = result.drop(columns=naturesense_metrics).rename(
             columns={
                 col: col.replace("_posterior", "")
                 for col in result.columns
                 if col.endswith("_posterior")
             }
         )
-        ns_final = result[
+        final = final[
             [
                 "na_entity_id",
                 "entity_isin",
@@ -776,9 +777,9 @@ def main(request):
 
         # Write results to BigQuery
         save_results(
-            ns_enhanced, FILE_NAME_OTHER, BQ_DATASET_OTHER, ENVIRONMENT, PROJECT_ID
+            enhanced, FILE_NAME_OTHER, BQ_DATASET_OTHER, ENVIRONMENT, PROJECT_ID
         )
-        save_results(ns_final, FILE_NAME, BQ_DATASET, ENVIRONMENT, PROJECT_ID)
+        save_results(final, FILE_NAME, BQ_DATASET, ENVIRONMENT, PROJECT_ID)
 
         return f"{FILE_NAME} metrics calculated and saved successfully.", 200
 

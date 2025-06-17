@@ -607,7 +607,14 @@ def process_company_evidence(
 
         if missing_entity_ids:
             logger.warning(
-                f"{len(missing_entity_ids)} companies were not found in company country distribution data"
+                f"""
+                {' '}
+                {'#' * 75}
+                {' '}
+                WARNING: {len(missing_entity_ids)} companies were not found in company country distribution data
+                {' '}
+                {'#' * 75}
+                """
             )
 
         logger.info("Completed company evidence processing")

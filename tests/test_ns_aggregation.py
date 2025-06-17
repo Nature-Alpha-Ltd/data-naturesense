@@ -1,6 +1,8 @@
 """
 python -m unittest discover tests 
 
+Test NatureSense company aggregation, including the following conditions:
+
 1. if material_assets_count >= threshold (e.g., 10 assets) 
   then company's sensitive_locations is calc based on ALD scores only
  
